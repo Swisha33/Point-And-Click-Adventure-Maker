@@ -1,0 +1,10 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "version": "1.0",
+  "author": "example",
+  "description": "Rain or snow over levels. Set it per level in the editor panel 'Weather', or change it in the game with the rule action 'Weather'.",
+  "web": "web.js",
+  "lua": "game.lua",
+  "settings": { "levels": { "bridge": "rain" }, "amount": 140 }
+}

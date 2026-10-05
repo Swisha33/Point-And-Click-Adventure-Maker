@@ -2,7 +2,7 @@
 body { width: 100vw; height: 100vh; background: #111; font-family: 'Courier New', monospace; display: flex; justify-content: center; align-items: center; overflow: hidden; }
 
 #gameContainer {
-    width: 1220px; height: 540px; background: #222; display: flex; flex-direction: row; position: relative;
+    width: 960px; height: 540px; background: #222; display: flex; flex-direction: row; position: relative;
     box-shadow: 0 0 50px rgba(0,0,0,1); transition: width 0.3s ease, height 0.3s ease; overflow: hidden; 
 }
 #gameContainer:fullscreen { width: 100vw; height: 100vh; background: #000; justify-content: center; align-items: center; }
@@ -209,3 +209,67 @@ input[type="text"], input[type="file"], input[type="number"], select { width: 10
 .anim-grid input[type=number] { width: 38px !important; }
 .anim-table td input[type=checkbox] { width: auto; margin: 0; }
 .player-only input[type=range] { width: 100%; }
+
+/* ---------- editor gear (title screen / HUD are drawn on the canvas) ---------- */
+#dbg-gear { position: absolute; top: 8px; right: 8px; z-index: 150; width: 34px; height: 34px; border-radius: 6px;
+    background: rgba(0,0,0,0.55); color: #0f0; border: 2px solid #0f0; font-size: 18px; cursor: pointer; line-height: 1; }
+#dbg-gear:hover { background: #000; color: #fff; border-color: #fff; }
+#gameContainer.debug-on #dbg-gear { border-color: #f44; color: #f44; }
+#gameContainer.debug-on { width: calc(960px + var(--dock, 260px)); }
+#gameContainer.debug-on.dbg-floating { width: 960px; }
+#gameContainer:fullscreen.debug-on { width: 100vw; }
+
+/* ---------- customizable debug panel ---------- */
+#uiLayer.dbg-float { position: fixed; z-index: 3000; resize: both; overflow: auto; min-width: 220px; min-height: 160px;
+    border: 2px solid #0f0; box-shadow: 0 6px 30px rgba(0,0,0,0.8); padding: 0 12px 16px; }
+#uiLayer .dbg-resize { position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: ew-resize; background: rgba(0,255,0,0.15); z-index: 5; }
+#uiLayer .dbg-resize:hover { background: rgba(0,255,0,0.5); }
+.dbg-head { display: flex; gap: 4px; align-items: center; justify-content: flex-end; margin: 0 0 6px; position: sticky; top: 0; background: #141414; padding: 4px 0; z-index: 4; }
+#uiLayer.dbg-float .dbg-head { cursor: move; }
+.dbg-head .dbg-grip { flex: 1; color: #0f0; font-size: 16px; text-align: left; }
+.dbg-head button { background: #222; color: #0f0; border: 1px solid #0a0; font: bold 11px 'Courier New', monospace; padding: 3px 6px; cursor: pointer; }
+.dbg-head button.on { background: #a00; color: #fff; border-color: #f00; }
+#uiLayer.debug-active { padding-top: 6px; }
+fieldset.collapsed > *:not(legend):not(.dbg-secbar) { display: none !important; }
+legend.dbg-legend { cursor: pointer; }
+legend.dbg-legend::before { content: '▾ '; }
+fieldset.collapsed legend.dbg-legend::before { content: '▸ '; }
+.dbg-custom { outline: 1px dashed #0f0; outline-offset: 2px; }
+.dbg-custom.dbg-hidden { opacity: 0.4; }
+.dbg-custom.dragging { opacity: 0.3; }
+.dbg-secbar { display: flex; gap: 3px; align-items: center; margin-bottom: 4px; }
+.dbg-secbar .dbg-seckey { flex: 1; color: #0f0; font-size: 10px; }
+#uiLayer.debug-active .dbg-secbar button { height: 20px !important; width: auto !important; padding: 0 5px; font-size: 10px; margin: 0 !important; }
+.dbg-quick { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.dbg-quick.customizing { outline: 1px dashed #ff0; padding: 4px; }
+#uiLayer.debug-active #buttons .dbg-qbtn, .dbg-qbtn { width: auto; margin: 0 !important; padding: 0 4px; position: relative; overflow: hidden;
+    background-color: #005a9e; border: 1px solid #39f; color: #fff; font: bold 11px 'Courier New', monospace; display: flex; align-items: center; justify-content: center; }
+.dbg-qbtn.has-img span { text-shadow: 0 0 3px #000, 1px 1px 0 #000; }
+.dbg-qwrap { position: relative; display: flex; align-items: flex-start; gap: 1px; }
+#uiLayer.debug-active #buttons .dbg-qx { width: 18px !important; height: 18px !important; padding: 0; font-size: 10px; margin: 0 !important; background: #333; border: 1px solid #777; }
+.dbg-qhold { position: relative; }
+.dbg-qrz { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; background: linear-gradient(135deg, transparent 50%, #ff0 50%); cursor: nwse-resize; touch-action: none; }
+#uiLayer.debug-active #buttons .dbg-qadd { width: auto; height: 26px; padding: 0 8px; background: #333; border: 1px dashed #0f0; margin: 0; }
+.dbg-qedit { min-width: 300px; display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.dbg-qedit select, .dbg-qedit input[type=text], .dbg-qedit input[type=number] { width: 100%; }
+.dbg-qprev { display: flex; justify-content: center; padding: 8px; background: #222; min-height: 40px; }
+
+/* ---------- UI layout editor ---------- */
+.ui-hint { color: #9c9; font-size: 11px; margin: 3px 0; white-space: pre-wrap; }
+.ui-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 2px 0; }
+.ui-row > input[type=number] { width: 60px; }
+.ui-add { display: flex; flex-wrap: wrap; gap: 3px; }
+#uiLayer.debug-active #buttons .ui-add button, #uiLayer.debug-active #buttons .ui-row button { width: auto; height: 26px; padding: 0 6px; margin: 0; font-size: 11px; }
+.ui-list { width: 100%; background: #111; color: #0f0; font: 11px 'Courier New', monospace; }
+.ui-props { border-top: 1px solid #0a0; margin-top: 6px; padding-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+.ui-props-head { color: #ff0; font-weight: bold; font-size: 12px; }
+.ui-grid4 { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 3px; align-items: center; }
+.ui-grid4 input { width: 100%; }
+.ui-color { display: inline-flex; gap: 4px; align-items: center; }
+.ui-color input[type=color] { width: 34px; height: 22px; padding: 0; border: none; }
+.ui-color input[type=range] { width: 70px; }
+.ui-none { font-size: 10px; color: #ccc; display: inline-flex; align-items: center; gap: 2px; }
+.plugin-row { border: 1px solid #333; padding: 4px; margin-bottom: 4px; }
+.plugin-title { color: #fff; font-weight: bold; font-size: 12px; }
+.plugin-ver { color: #9c9; font-size: 10px; }
+.plugin-err { color: #f66; font-size: 11px; white-space: pre-wrap; margin: 4px 0; }

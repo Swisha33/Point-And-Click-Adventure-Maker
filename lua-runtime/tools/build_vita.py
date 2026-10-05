@@ -18,7 +18,7 @@ Needs: Python 3.8+, Pillow (pip install pillow), ffmpeg in PATH (for audio).
 import argparse, io, os, re, shutil, struct, subprocess, sys, zipfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-GAME_DIRS = ["engine", "platform", "game", "assets", "media"]
+GAME_DIRS = ["engine", "platform", "game", "assets", "media", "plugins"]
 GAME_FILES = ["index.lua"]
 
 try:

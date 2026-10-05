@@ -22,12 +22,40 @@ const smallBtn = (label, title, fn) => el('button', { class: 'mini-btn', title, 
 function moveIn(arr, i, d, rerender) { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; rerender(); }
 
 export const VERB_LABELS = { look: 'Look', talk: 'Talk', use: 'Use', item: 'Use item on it' };
-const COND_TYPES = [['flag', 'flag is set'], ['noflag', 'flag is NOT set'], ['item', 'player has item'], ['noitem', 'player does NOT have item']];
-const ACTION_TYPES = [
+export const COND_TYPES = [['flag', 'flag is set'], ['noflag', 'flag is NOT set'], ['item', 'player has item'], ['noitem', 'player does NOT have item']];
+export const ACTION_TYPES = [
     ['give', 'Give item'], ['take', 'Take item away'], ['set', 'Set flag'], ['clear', 'Clear flag'],
     ['hide', 'Hide hotspot'], ['show', 'Show hotspot'], ['exit', 'Unlock exit button'], ['goto', 'Go to level'],
-    ['dignity', 'Change dignity'], ['sound', 'Play sound'], ['follow', 'This character follows player']
+    ['dignity', 'Change dignity'], ['sound', 'Play sound'], ['follow', 'This character follows player'],
+    ['menu', 'Open menu screen'], ['closemenu', 'Close menu screen']
 ];
+// field lists of types added by plugins (and the menu actions): { type: [ { key, label, type } ] }
+const EXTRA_FIELDS = { action: { menu: [{ key: 'key', label: 'menu', type: 'screen' }], closemenu: [] }, cond: {} };
+export function registerRuleType(kind, type, label, fields) {
+    const list = kind === 'cond' ? COND_TYPES : ACTION_TYPES;
+    const i = list.findIndex(t => t[0] === type);
+    if (i >= 0) list[i] = [type, label]; else list.push([type, label]);
+    EXTRA_FIELDS[kind][type] = fields || [];
+}
+// generic inputs for a field list (plugin types)
+function fieldInputs(obj, fields, ctx) {
+    return fields.map(f => {
+        const set = (v) => { if (v === '' || v === undefined) delete obj[f.key]; else obj[f.key] = v; };
+        let input;
+        if (f.type === 'item') input = itemSelect(ctx, obj[f.key], set, true);
+        else if (f.type === 'level' || f.type === 'screen' || f.type === 'hotspot') {
+            const opts = f.type === 'level' ? ctx.levels.map(l => [l, l]) : f.type === 'screen' ? (ctx.screens || []) : ctx.hotspots.map(h => [h.id, h.label]);
+            input = el('select', { onchange: () => set(input.value) }, opts.map(([v, l]) => opt(v, l, obj[f.key])));
+            if (obj[f.key] === undefined && opts.length) obj[f.key] = opts[0][0];
+        } else if (f.type === 'flag') input = flagInput(obj[f.key], set);
+        else {
+            input = el('input', { type: f.type === 'number' ? 'number' : 'text', value: obj[f.key] ?? '', placeholder: f.label || f.key,
+                oninput: () => set(f.type === 'number' ? (input.value === '' ? '' : parseFloat(input.value)) : input.value) });
+        }
+        input.title = f.label || f.key;
+        return input;
+    });
+}
 
 // ---- context helpers (lists for the dropdowns)
 export function makeCtx(engine, current) {
@@ -41,7 +69,8 @@ export function makeCtx(engine, current) {
     const hotspots = [];
     for (const [scene, list] of Object.entries(c.hotspots)) list.forEach(h => hotspots.push({ id: h.id, label: `${h.name || h.id} (${scene})` }));
     const sounds = Object.keys(c.audio).filter(k => k !== 'music' && k !== 'click' && !c.spawns[k]);
-    return { items: c.items || {}, flags: [...flags].sort(), hotspots, levels: c.sceneOrder.slice(), sounds };
+    const screens = Object.entries(((c.ui || {}).layout || {}).screens || {}).filter(([k]) => k !== 'title' && k !== 'hud').map(([k, s]) => [k, s.name || k]);
+    return { items: c.items || {}, flags: [...flags].sort(), hotspots, levels: c.sceneOrder.slice(), sounds, screens };
 }
 function flagDatalist(ctx) {
     let dl = document.getElementById('flag-datalist');
@@ -72,7 +101,11 @@ export function condsEditor(arr, ctx, label = 'Only if') {
         box.appendChild(el('div', { class: 'rule-label' }, label + (arr.length ? ':' : ' (always)')));
         arr.forEach((c, i) => {
             const keyCell = el('span', { class: 'rule-key' });
-            const drawKey = () => { keyCell.innerHTML = ''; keyCell.appendChild(c.type === 'item' || c.type === 'noitem' ? itemSelect(ctx, c.key, v => c.key = v) : flagInput(c.key, v => c.key = v)); };
+            const drawKey = () => {
+                keyCell.innerHTML = '';
+                if (EXTRA_FIELDS.cond[c.type]) fieldInputs(c, EXTRA_FIELDS.cond[c.type], ctx).forEach(x => keyCell.appendChild(x));
+                else keyCell.appendChild(c.type === 'item' || c.type === 'noitem' ? itemSelect(ctx, c.key, v => c.key = v) : flagInput(c.key, v => c.key = v));
+            };
             const type = el('select', { onchange: () => { c.type = type.value; c.key = ''; drawKey(); } }, COND_TYPES.map(([v, l]) => opt(v, l, c.type)));
             drawKey();
             box.appendChild(el('div', { class: 'rule-row' }, [type, keyCell, smallBtn('✕', 'Remove', () => { arr.splice(i, 1); render(); })]));
@@ -112,7 +145,8 @@ export function actionsEditor(arr, ctx, label = 'Then') {
             const drawKey = () => {
                 cell.innerHTML = '';
                 const t = a.type;
-                if (t === 'give' || t === 'take') cell.appendChild(itemSelect(ctx, a.key, v => a.key = v));
+                if (EXTRA_FIELDS.action[t]) fieldInputs(a, EXTRA_FIELDS.action[t], ctx).forEach(x => cell.appendChild(x));
+                else if (t === 'give' || t === 'take') cell.appendChild(itemSelect(ctx, a.key, v => a.key = v));
                 else if (t === 'set' || t === 'clear') cell.appendChild(flagInput(a.key, v => a.key = v));
                 else if (t === 'hide' || t === 'show') {
                     const s = el('select', { onchange: () => { if (s.value) a.key = s.value; else delete a.key; } });

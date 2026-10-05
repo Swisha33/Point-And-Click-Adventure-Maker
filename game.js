@@ -6,6 +6,10 @@ import { debug } from './editor.js';
 import { popup } from './popup.js';
 import { spriteInfo, spriteFrame, pickAnim, moveDir } from './sprite.js';
 import { adventure } from './adventure.js';
+import { uiLayout } from './ui-layout.js';
+import { uiEditor } from './ui-editor.js';
+import { createPluginHost } from './plugins.js';
+import { debugUI } from './debug-ui.js';
 
 const VW = 960, VH = 540;
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -138,16 +142,6 @@ const engine = {
         this.pathCtx = this.pathCanvas.getContext("2d", { willReadFrequently: true });
         this.pathCanvas.width = VW; this.pathCanvas.height = VH;
 
-        const cont = document.getElementById("gameContainer");
-        const uiLayer = document.getElementById("uiLayer");
-        let toggleBtn = document.getElementById("ui-toggle-btn");
-        if (!toggleBtn) {
-            toggleBtn = document.createElement("div"); toggleBtn.id = "ui-toggle-btn"; toggleBtn.innerHTML = "◀";
-            cont.appendChild(toggleBtn);
-        }
-        toggleBtn.onclick = () => { uiLayer.classList.toggle("minimized"); toggleBtn.innerHTML = uiLayer.classList.contains("minimized") ? "▶" : "◀"; toggleBtn.classList.toggle("btn-minimized"); };
-        toggleBtn.classList.add('hidden');
-
         let stored = await store.get("SirLicksConfig");
         if (!stored) { // old localStorage save from v1
             try { const ls = localStorage.getItem("SirLicksConfig"); if (ls) stored = JSON.parse(ls); } catch (e) {}
@@ -158,6 +152,11 @@ const engine = {
         const v = this.gameConfig.volumes || {};
         this.musicVolume = v.music ?? 0.5; this.ambVolume = v.amb ?? 0.5; this.sfxVolume = v.sfx ?? 0.5;
         this.scene = this.gameConfig.startScene;
+        this.uiInit();
+        this.plugins = createPluginHost(this);
+        await this.plugins.loadAll();
+        const gear = document.getElementById('dbg-gear');
+        if (gear) { gear.onclick = () => this.toggleDebugMenu(); gear.classList.toggle('hidden', this.gameConfig.allowDebug === false); }
 
         this.preloadImages();
         this.setupEventListeners();
@@ -237,7 +236,8 @@ const engine = {
     preloadImages() {
         const c = this.gameConfig;
         Object.values(c.images).forEach(s => { this.img(s.bg); this.img(s.path); this.img(s.fg); });
-        Object.values(c.ui).forEach(s => { if (/\.(png|jpe?g|webp|gif)$/i.test(s) || s.startsWith('data:image')) this.img(s); });
+        Object.values(c.ui).forEach(s => { if (typeof s === 'string' && (/\.(png|jpe?g|webp|gif)$/i.test(s) || s.startsWith('data:image'))) this.img(s); });
+        Object.values(this.layout().screens).forEach(sc => { this.img(sc.bgImage); sc.elements.forEach(e => this.img(e.image)); });
         this.img(c.knight.image); this.img(c.titleScreen.backgroundImage);
     },
 
@@ -385,6 +385,7 @@ const engine = {
         for (const [key, a] of this.audioCache) { if (key !== 'music' && a.loop) { a.pause(); a.currentTime = 0; } }
         if (this.isGameRunning && this.gameConfig.audio[this.scene]) { const a = this.audio(this.scene); a.loop = true; a.volume = this.ambVolume; a.play().catch(() => {}); }
         if (this.isGameRunning && !this.debugMode && !noAutosave && this.adv) this.saveGame('auto');   // autosave on every level change
+        if (this.plugins) this.plugins.hook('sceneEnter', name);
         this.updateUI();
     },
 
@@ -562,8 +563,12 @@ const engine = {
             const ctx = this.ctx;
             ctx.clearRect(0, 0, VW, VH);
             if (this.navDirty) this.generateNavGrid();
-            if (this.isGameRunning || this.debugMode) {
-                if (this.isGameRunning && !this.gameOverTimer) this.updateKnight();
+            if (!this.isGameRunning) {
+                if (!this.uiEdit) this.uiDraw(ctx);            // title screen (+ open menus)
+                if (this.plugins) this.plugins.hook('title', ctx);
+            } else {
+                if (!this.gameOverTimer) this.updateKnight();
+                if (this.plugins) this.plugins.hook('update');
 
                 ctx.fillStyle = "#000"; ctx.fillRect(0, 0, VW, VH);
                 const imgs = this.sceneImages();
@@ -590,9 +595,13 @@ const engine = {
 
                 const fg = this.img(imgs.fg);
                 if (this.ready(fg)) ctx.drawImage(fg, r.x, r.y, r.w, r.h);
-                if (this.debugMode) this.drawDebugOverlay();
-                if (this.isGameRunning && this.dialogueTimer > 0 && this.activeDialogue) { this.drawBubble(); this.dialogueTimer--; }
-                if (this.isGameRunning && this.adv) { this.advUpdate(); this.drawAdvUI(ctx); }
+                if (this.plugins) this.plugins.hook('drawWorld', ctx);
+                if (this.debugMode && !this.uiEdit) this.drawDebugOverlay();
+                if (!this.uiEdit) this.uiDraw(ctx, { screens: ['hud'] });
+                if (this.dialogueTimer > 0 && this.activeDialogue) { this.drawBubble(); this.dialogueTimer--; }
+                if (this.adv) { this.advUpdate(); this.drawAdvUI(ctx); }
+                if (!this.uiEdit && this.ui.menus.length) this.uiDraw(ctx, { screens: this.ui.menus });
+                if (this.plugins) this.plugins.hook('drawUI', ctx);
 
                 if (this.clickTarget) {
                     ctx.save(); ctx.strokeStyle = `rgba(255,255,255,${this.clickTarget.life / 20})`; ctx.lineWidth = 3;
@@ -607,6 +616,7 @@ const engine = {
                     if (--this.gameOverTimer <= 0) this.backToTitle();
                 }
             }
+            if (this.uiEdit) this.uiEditDraw(ctx);
             this.gameFrame++; requestAnimationFrame(animate);
         };
         requestAnimationFrame(animate);
@@ -621,7 +631,7 @@ const engine = {
             try { this.canvas.setPointerCapture(e.pointerId); } catch (_) {}
             this.handleMouseMove(e); this.handleMouseDown(e); e.preventDefault();
         });
-        this.canvas.addEventListener('pointermove', (e) => { if (e.isPrimary) this.handleMouseMove(e); });
+        this.canvas.addEventListener('pointermove', (e) => { if (e.isPrimary) { this._shift = e.shiftKey; this.handleMouseMove(e); } });
         this.canvas.addEventListener('pointerup', () => this.handleMouseUp());
         this.canvas.addEventListener('pointercancel', () => this.handleMouseUp());
         document.addEventListener('keydown', (e) => this.handleKeyDown(e));
@@ -637,13 +647,16 @@ const engine = {
 
     handleMouseDown(e) {
         this.playClickSound();
-        if (!this.isGameRunning && !this.debugMode) return;
-        if (this.gameOverTimer) return;
         const { x: clickX, y: clickY } = this.canvasPos(e);
+        if (this.uiEdit) { this.uiEditDown(clickX, clickY); return; }
+        if (this.plugins && this.plugins.hook('tap', clickX, clickY) === true) return;
+        const busyEditing = this.debugMode && (this.placeMode || this.editMode || this.deleteMode || this.editEnabled);
+        if (!busyEditing && !this.gameOverTimer && this.uiPointerDown(clickX, clickY)) return;
+        if (!this.isGameRunning) return;
+        if (this.gameOverTimer) return;
         const list = this.gameConfig.hotspots[this.scene] || (this.gameConfig.hotspots[this.scene] = []);
 
         if (this.debugMode) {
-            if (!this.isGameRunning) return;          // title screen is edited from the side panel
             if (this.placeMode) {                      // + HOTSPOT / + CHARACTER: tap where it goes
                 const kind = this.placeMode; this.placeMode = null;
                 const x = Math.round(clickX), y = Math.round(clickY);
@@ -710,6 +723,8 @@ const engine = {
 
     handleMouseMove(e) {
         const p = this.canvasPos(e); this.mouseX = p.x; this.mouseY = p.y;
+        if (this.uiEdit) { this.uiEditMove(p.x, p.y, e.shiftKey); return; }
+        this.uiPointerMove(p.x, p.y);
         if (this.isDragging && this.dragTarget) {
             const d = this.dragTarget;
             const mx = this.mouseX + (d.ox || 0), my = this.mouseY + (d.oy || 0);
@@ -719,15 +734,15 @@ const engine = {
             else if (d.type === 'walk') { d.h.walkTo = { x: Math.round(mx), y: Math.round(my) }; }
         }
     },
-    handleMouseUp() { this.isDragging = false; this.dragTarget = null; },
-    handleKeyDown(e) { if (e.key === 'F2') { e.preventDefault(); this.toggleDebugMenu(); } },
+    handleMouseUp() { this.isDragging = false; this.dragTarget = null; this.uiPointerUp(); this.uiEditUp(); },
+    handleKeyDown(e) {
+        if (e.key === 'F2') { e.preventDefault(); this.toggleDebugMenu(); return; }
+        if (this.uiEditKey(e)) return;
+        if (e.key === 'Escape' && this.ui && this.ui.menus.length && !document.querySelector('.popup-backdrop')) { this.ui.menus.pop(); e.preventDefault(); }
+    },
 
     startGame(forLoad = false) {
-        document.getElementById("startScreen").classList.add("hidden");
-        document.getElementById("uiLayer").classList.remove("hidden");
-        document.getElementById('ui-toggle-btn').classList.remove("hidden");
-        document.getElementById("startScreen").classList.remove("debug-title");
-        this.isGameRunning = true; this.dignity = this.gameConfig.startDignity ?? 3; this.gameOverTimer = 0;
+        this.isGameRunning = true; this.ui.menus = []; this.dignity = this.gameConfig.startDignity ?? 3; this.gameOverTimer = 0;
         // fresh play-through: forget discoveries
         this.unlockedExits = {}; this.pendingTravel = null;
         this.restoreFollowers();
@@ -735,6 +750,7 @@ const engine = {
         this.advReset();
         this.setScene(this.gameConfig.startScene || this.gameConfig.sceneOrder[0], forLoad);
         const m = this.audio('music'); if (m) { m.volume = this.musicVolume; m.play().catch(() => {}); }
+        if (this.plugins) this.plugins.hook('gameStart');
         this.updateUI();
     },
     backToTitle() {
@@ -743,12 +759,9 @@ const engine = {
         for (const a of this.audioCache.values()) { a.pause(); a.currentTime = 0; }
         // followers walk home again
         this.restoreFollowers();
-        document.getElementById("startScreen").classList.remove("hidden");
-        document.getElementById("startScreen").classList.toggle("debug-title", this.debugMode);
-        document.getElementById('ui-toggle-btn').classList.add("hidden");
-        document.getElementById("uiLayer").classList.toggle('hidden', !this.debugMode);
+        this.ui.menus = [];
+        if (this.uiEdit && this.uiEdit.screen === 'hud') this.uiEdit.screen = 'title';
         this.updateUI();
-        this.debug.updateTitleScreenElements();
     },
     restoreFollowers() {
         const all = [];
@@ -783,28 +796,23 @@ const engine = {
 
     updateUI() {
         const uiLayer = document.getElementById("uiLayer"); const statsDiv = document.getElementById("stats"); const buttonsDiv = document.getElementById("buttons"); buttonsDiv.innerHTML = "";
-        if (this.debugMode && !this.isGameRunning) { this.buildTitleDebugUI(uiLayer, statsDiv, buttonsDiv); return; }
-        if (this.debugMode) { this.buildLevelDebugUI(uiLayer, statsDiv, buttonsDiv); return; }
-        {
-            uiLayer.classList.remove('debug-active');
-            const box = document.createElement('div');
-            box.style.cssText = `background: url('${this.gameConfig.ui.panelBox}') no-repeat center; background-size: 100% 100%; width: 220px; height: 80px; display: flex; align-items: center; justify-content: center; color: #4e342e; font-weight: bold; font-size: 18px; margin: 0 auto;`;
-            box.textContent = `❤️ Dignity: ${this.dignity}`;
-            statsDiv.innerHTML = ''; statsDiv.appendChild(box);
-            this.currentExits().forEach(ex => { this.createBtn(ex.text, () => this.setScene(ex.target), "", buttonsDiv); });
-            const lConf = this.gameConfig.levelLicks[this.scene] || this.gameConfig.lickConfig;
-            this.createBtn(lConf.text, () => {
-                if (this.gameOverTimer) return;
-                if (this.adv && this.adv.seq) return;
-                this.runSeq([{ say: { speaker: 'knight', text: lConf.response } }, { actions: [{ type: 'dignity', value: lConf.dignityChange }] }]);
-            }, "", buttonsDiv);
-            this.createBtn("Save Game", () => this.saveMenu('save'), "", buttonsDiv);
-            this.createBtn("Load Game", () => this.saveMenu('load'), "", buttonsDiv);
-            this.createBtn(this.isMuted ? 'UNMUTE' : 'MUTE', () => this.toggleMute(), "", buttonsDiv);
-            this.createBtn("Fullscreen", () => this.toggleFullscreen(), "", buttonsDiv);
-            this.createBtn("DEB-UI: OFF", () => this.toggleDebugMenu(), "", buttonsDiv);
-            this.createVolumeControls(buttonsDiv);
+        if (this.debugMode) {
+            const sc = buttonsDiv.scrollTop, sc2 = uiLayer.scrollTop;
+            uiLayer.classList.remove('hidden');
+            document.getElementById('gameContainer').classList.add('debug-on');
+            if (this.uiEdit) buttonsDiv.appendChild(this.uiEditorFieldset());
+            if (this.isGameRunning) this.buildLevelDebugUI(uiLayer, statsDiv, buttonsDiv); else this.buildTitleDebugUI(uiLayer, statsDiv, buttonsDiv);
+            if (!this.uiEdit) buttonsDiv.appendChild(this.uiEditorFieldset());
+            buttonsDiv.appendChild(this.pluginsFieldset());
+            this.pluginPanels().forEach(f => buttonsDiv.appendChild(f));
+            debugUI.decorate(this, uiLayer, statsDiv, buttonsDiv);
+            buttonsDiv.scrollTop = sc; uiLayer.scrollTop = sc2;
+            return;
         }
+        uiLayer.classList.remove('debug-active');
+        uiLayer.classList.add('hidden');
+        statsDiv.innerHTML = '';
+        document.getElementById('gameContainer').classList.remove('debug-on');
     },
 
     // file chooser that applies as soon as a file is picked
@@ -834,13 +842,17 @@ const engine = {
         dbg.onchange = () => { c.allowDebug = dbg.checked; };
         const dl = document.createElement('label'); dl.htmlFor = 'allow-debug'; dl.textContent = 'Debug mode in exported game (turn off for release)';
         dbgRow.appendChild(dbg); dbgRow.appendChild(dl);
+        c.tools = c.tools || {};
+        const tool = this.createDebugInput('text', 'sprite-tool-id', 'e.g. ABCD00001', c.tools.spriteEditorTitleId || '');
+        tool.onchange = () => { const v = tool.value.trim().toUpperCase(); if (v) c.tools.spriteEditorTitleId = v; else delete c.tools.spriteEditorTitleId; };
         return this.createDebugFieldset('Game Settings', [
             this.createDebugLabel('Start level:'), startSel,
             this.createDebugLabel('Starting dignity:'), dig,
             this.createDebugButton('ITEMS & COMBINATIONS', () => this.debug.showItems()),
             this.createDebugButton('INTERACTION (verbs, walking, default answers)', () => this.debug.showInteraction()),
             this.createDebugButton('Default lick action (all levels)', () => this.debug.showLickEditor(true)),
-            dbgRow
+            dbgRow,
+            this.createDebugLabel('PS Vita: title ID of your sprite editor (e.g. your LibreSprite port) - started from the on-device editor:'), tool
         ]);
     },
 
@@ -953,7 +965,6 @@ const engine = {
         buttonsDiv.appendChild(this.exportFieldset());
         this.createBtn("RESET ENGINE", () => this.debug.resetEngine(), "debug-btn full-width-btn reset-btn", buttonsDiv);
         this.createBtn("DEB-UI: ON", () => this.toggleDebugMenu(), "", buttonsDiv);
-        this.debug.updateTitleScreenElements();
     },
 
     createBtn(t, c, cl = '', p = null) { const b = document.createElement("button"); b.innerText = t; b.onclick = c; if (cl) b.className = cl; (p || document.getElementById("buttons")).appendChild(b); return b; },
@@ -972,15 +983,12 @@ const engine = {
 
     toggleDebugMenu() {
         this.debugMode = !this.debugMode;
-        document.getElementById('uiLayer').classList.toggle('hidden', !this.debugMode && !this.isGameRunning);
-        if (!this.debugMode) { this.editEnabled = false; this.deleteMode = false; this.editMode = false; this.placeMode = null; }
-        // debug on the title screen = title screen editor (title shown at its real in-game size)
-        document.getElementById('startScreen').classList.toggle('debug-title', this.debugMode && !this.isGameRunning);
+        if (!this.debugMode) { this.editEnabled = false; this.deleteMode = false; this.editMode = false; this.placeMode = null; this.uiEdit = null; }
         if (this.debugMode) this.generateNavGrid();
         this.updateUI();
     },
 };
 
-Object.assign(engine, adventure);
+Object.assign(engine, adventure, uiLayout, uiEditor);
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => engine.init());
 else engine.init();

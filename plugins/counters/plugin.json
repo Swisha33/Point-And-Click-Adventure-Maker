@@ -1,0 +1,10 @@
+{
+  "id": "counters",
+  "name": "Counters",
+  "version": "1.0",
+  "author": "example",
+  "description": "Number variables (coins, points, tries...). Rule actions 'Counter: add / set', condition 'Counter is at least', UI text {var:name}, UI button action 'Counter: add'. Stored in save games.",
+  "web": "web.js",
+  "lua": "game.lua",
+  "settings": { "start": { "coins": 0 } }
+}

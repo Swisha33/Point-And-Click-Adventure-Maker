@@ -108,6 +108,20 @@ end
 
 function love.textinput(t) if loaded == true then safe(G.textinput, t) end end
 
+-- PC: drop a picture onto the window -> copied to <save folder>/images/ and offered in the editor's file picker
+function love.filedropped(file)
+  if loaded ~= true then return end
+  local name = (file:getFilename():match("([^/\\]+)$") or "picture.png"):gsub("[^%w%._%-]", "_")
+  if not name:lower():match("%.png$") and not name:lower():match("%.jpe?g$") and not name:lower():match("%.bmp$") then return end
+  local ok = pcall(file.open, file, "r")
+  if not ok then return end
+  local data = file:read()
+  file:close()
+  love.filesystem.createDirectory("images")
+  love.filesystem.write("images/" .. name, data)
+  safe(G.fileDropped, "images/" .. name)
+end
+
 -- gamepad support (e.g. Android with controller)
 function love.gamepadpressed(_, btn)
   if loaded ~= true then return end

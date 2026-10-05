@@ -127,4 +127,26 @@ if not isMobile then
 end
 function B.quit() love.event.quit() end
 
+-- file browser for the on-device editor: pictures in the save folder ("images/"), the game's media
+-- PC: drop a picture onto the window to copy it into images/ (see love.filedropped in main.lua)
+pcall(love.filesystem.createDirectory, "images")
+function B.pickerRoots()
+  return {
+    { label = "My pictures (save folder/images)", path = "images" },
+    { label = "Game media", path = "media" },
+    { label = "Game assets", path = "assets" },
+  }
+end
+function B.listDir(path)
+  local out = {}
+  local ok, items = pcall(love.filesystem.getDirectoryItems, path)
+  if not ok or not items then return out end
+  for _, name in ipairs(items) do
+    local info = love.filesystem.getInfo(path .. "/" .. name)
+    if info then out[#out + 1] = { name = name, dir = info.type == "directory" } end
+  end
+  return out
+end
+B.saveDir = love.filesystem.getSaveDirectory()
+
 return B

@@ -34,6 +34,32 @@ Webserver öffnen, z. B. `python -m http.server` und dann http://localhost:8000.
 
 ## Neu im Editor
 
+**Update 7 – anpassbare Oberfläche, Plugins, Vita-Maker, Animationen**
+- **Spiel-UI frei gestaltbar** (Titelbild, Spiel-HUD, eigene Menüs): Debug → *UI Layout* → EDIT. Elemente direkt im Spielbild
+  **ziehen**, an den grünen Griffen **größer/kleiner** ziehen (Raster 1–20 px, Shift = frei, Pfeiltasten, Entf, Strg+D).
+  Hinzufügen: Button, Text, Bild, Panel, Ausgangs-Buttons (automatisch je Level), Lautstärke-Regler.
+  Pro Element: Text mit Platzhaltern (`{dignity}` `{scene}` `{lick}` `{mute}` `{music}` `{sfx}` `{items}` `{flag:name}` und von Plugins z. B. `{var:coins}`),
+  Schriftgröße, Farben (mit Transparenz), Rahmen, **Bild hochladen – wird auf die Button-Größe gebracht** (strecken / einpassen / füllen+zuschneiden, „Box = Bildform“).
+  **Funktionen**: Spiel starten, Weiter, Speichern/Laden, Titel, **zu Szene X**, **Menü öffnen / schließen**, Gruppe ein/aus (z. B. Seitenleiste), Mute, Vollbild, Lecken,
+  **beliebige Regel-Aktionen**, Editor, Beenden. Sichtbarkeit: Gruppe, „nur wenn Spielstand vorhanden“ usw., und Bedingungen (Flag / Gegenstand).
+  **+ NEW MENU SCREEN** legt ein neues Menü an (Beispiel: „Pause menu“); öffnen per Button oder Regel-Aktion „Open menu screen“.
+  Alles läuft identisch im Browser, in LÖVE (PC/Android) und auf der Vita.
+- **Debug-Menü anpassbar**: ⧉ Float = schwebendes Fenster (oben ziehen, Ecke = Größe), ⇤ Dock = Seitenleiste mit ziehbarer Breite.
+  **✎ Customize**: Bereiche per Drag & Drop oder ▲▼ sortieren, ausblenden, ☰ alles einklappen (Klick auf Überschrift klappt einzeln).
+  **+ Button**: eigene Schnellknöpfe mit Funktion (neue Szene, neues Menü, UI-Editor, Export, Speichern, Modi, Plugin-Befehle …), Text, Größe (Ecke ziehen) und **eigenem Bild**.
+  Wird pro Browser gespeichert.
+- **Plugins** (siehe [PLUGINS.md](PLUGINS.md)): neue Regel-Aktionen, Bedingungen, Button-Funktionen, Text-Platzhalter, Effekte und Editor-Werkzeuge –
+  für Browser *und* Lua (PC/Android/Vita). Installieren: Debug → *Plugins* (.zip oder Beispiel), APPLY. Plugins sind Teil des Projekts (Backup, Export).
+  Beispiele: **Counters** (Münzen/Punkte, gespeichert im Spielstand) und **Weather** (Regen/Schnee pro Level, Editor-Panel).
+- **Vita/Android/PC als Maker** (versteckter Editor): **+ LEVEL** (Name, Hintergrund aus dem Speicher), **BACKGROUND**, **PICTURE FROM FILES** für Objekte,
+  **WALK AREA** (Laufbereich mit dem Finger malen: Wand/Boden, Pinselgröße), **EXITS** (Ausgänge + Rückweg), **UI LAYOUT** (Buttons/Texte/Bilder ziehen, Größe, Funktion,
+  Bild aus dem Speicher, neue Menüs), **PLUGINS** (Werkzeuge der Plugins).
+  Bilder: Vita `ux0:data/SirLicks/images`, `ux0:picture`, ganzer Speicher; PC: Bild ins Fenster ziehen; LÖVE-Speicherordner `images/`.
+  **SPRITE EDITOR**: startet auf der Vita deine LibreSprite-Portierung (Title-ID einmal eingeben oder im Web-Editor unter Game Settings) – vorher wird gespeichert.
+  Gezeichnete PNGs danach einfach mit PICTURE FROM FILES holen.
+- **Animationen**: Sheets mit mehreren Zeilen (Frames laufen über Zeilenenden weiter), eigenes Bild pro Animation mit eigenem Raster (Spalten × Zeilen),
+  **Run-Animation**, **Doppeltipp = rennen**, Regler für **Lauf- und Renngeschwindigkeit**, **↑/↓-Animationen** (Idle/Walk/Run) für Vogelperspektive.
+
 **Update 6**
 - Texte bleiben stehen, bis man tippt (▼-Hinweis); abschaltbar unter INTERACTION.
 - Pro Hotspot: **„Only visible when near“** – auch Hotspots mit eigenem Bild blenden sich wie normale Hotspots erst in der Nähe (Zeiger oder Ritter) ein. Standard: an für Hotspots, aus für Figuren.
@@ -85,6 +111,9 @@ Webserver öffnen, z. B. `python -m http.server` und dann http://localhost:8000.
 
 ```
 index.html, style.css, game.js, editor.js, config.js   Web-Editor
+ui-layout.js, ui-editor.js                             anpassbare Spiel-UI (+ Editor dafür)
+debug-ui.js                                            anpassbares Debug-Menü
+plugins.js, plugins/                                   Plugin-System + Beispiel-Plugins
 assets/                                                Bilder, Sounds, Schrift
 vendor/jszip.min.js                                    ZIP-Bibliothek (offline)
 lua-runtime/                                           Lua-Engine + Build-Skripte (geht in den Export)

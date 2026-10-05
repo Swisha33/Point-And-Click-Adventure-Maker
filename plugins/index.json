@@ -1,0 +1,6 @@
+{
+  "plugins": [
+    { "dir": "counters", "name": "Counters", "description": "number variables: coins, points, tries ... (actions, conditions, {var:name} in UI texts)" },
+    { "dir": "weather", "name": "Weather", "description": "rain / snow over levels, rule action + editor panel" }
+  ]
+}

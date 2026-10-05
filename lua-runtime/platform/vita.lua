@@ -18,6 +18,13 @@ function B.time() return Timer.getTime(clock) / 1000 end
 
 pcall(System.createDirectory, "ux0:/data")
 pcall(System.createDirectory, SAVE)
+pcall(System.createDirectory, SAVE .. "images")
+
+-- game files live in app0:/, but pictures picked in the on-device editor have full paths (ux0:..)
+local function full(path)
+  if path:match("^%a+%d*:") then return path end
+  return ROOT .. path
+end
 
 local function color(r, g, b, a) return Color.new(math.floor(r), math.floor(g), math.floor(b), math.floor(a or 255)) end
 local floor = math.floor
@@ -54,8 +61,9 @@ end
 
 -- ------------------------------------------------------------ images
 function B.loadImage(path)
-  if not System.doesFileExist(ROOT .. path) then return nil end
-  local ok, img = pcall(Graphics.loadImage, ROOT .. path)
+  local fp = full(path)
+  if not System.doesFileExist(fp) then return nil end
+  local ok, img = pcall(Graphics.loadImage, fp)
   if not ok or not img then return nil end
   pcall(Graphics.setImageFilters, img, FILTER_LINEAR, FILTER_LINEAR)
   return img
@@ -113,8 +121,9 @@ end
 -- overlap, be stopped (closed) and replayed reliably.
 local voices = {}
 function B.loadSound(path)
-  if not System.doesFileExist(ROOT .. path) then return nil end
-  return { path = ROOT .. path, vol = 1, handles = {} }
+  local fp = full(path)
+  if not System.doesFileExist(fp) then return nil end
+  return { path = fp, vol = 1, handles = {} }
 end
 function B.playSound(s, loop)
   local ok, h = pcall(Sound.open, s.path)
@@ -197,6 +206,28 @@ function B.pollText()
 end
 
 function B.quit() System.exit() end
+
+-- file browser for the on-device editor (pictures drawn with LibreSprite etc.)
+function B.pickerRoots()
+  return {
+    { label = "My pictures (ux0:data/SirLicks/images)", path = SAVE .. "images" },
+    { label = "Photos & screenshots (ux0:picture)", path = "ux0:picture" },
+    { label = "Data folder (ux0:data)", path = "ux0:data" },
+    { label = "Memory card (ux0:)", path = "ux0:/" },
+    { label = "Game files (app0:)", path = "app0:/" },
+  }
+end
+function B.listDir(path)
+  local ok, l = pcall(System.listDirectory, path)
+  if not ok or not l then return {} end
+  local out = {}
+  for _, e in ipairs(l) do out[#out + 1] = { name = e.name, dir = e.directory and true or false } end
+  return out
+end
+-- start another installed app (e.g. a LibreSprite port) - the game closes, edits are saved first
+if System.launchApp then
+  function B.launchApp(titleid) System.launchApp(titleid) end
+end
 
 B.OY = OY
 return B

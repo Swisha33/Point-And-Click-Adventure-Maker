@@ -1,9 +1,9 @@
 // =============================
 // EDITOR / DEBUG TOOLS
 // =============================
-const LUA_RUNTIME_FILES = ['main.lua', 'conf.lua', 'index.lua', 'engine/util.lua', 'engine/nav.lua', 'engine/game.lua', 'platform/love.lua', 'platform/vita.lua'];
+const LUA_RUNTIME_FILES = ['main.lua', 'conf.lua', 'index.lua', 'engine/util.lua', 'engine/nav.lua', 'engine/game.lua', 'engine/layout.lua', 'engine/plugins.lua', 'platform/love.lua', 'platform/vita.lua'];
 const LUA_EXTRA_FILES = ['tools/build_love.py', 'tools/build_vita.py', 'README_LUA.md'];
-const WEB_FILES = ['index.html', 'style.css', 'game.js', 'editor.js', 'popup.js', 'sprite.js', 'adventure.js', 'rules-editor.js', 'config.js', 'vendor/jszip.min.js', 'vendor/JSZIP_LICENSE.md'];
+const WEB_FILES = ['index.html', 'style.css', 'game.js', 'editor.js', 'popup.js', 'sprite.js', 'adventure.js', 'rules-editor.js', 'ui-layout.js', 'ui-editor.js', 'debug-ui.js', 'plugins.js', 'config.js', 'vendor/jszip.min.js', 'vendor/JSZIP_LICENSE.md', 'PLUGINS.md', 'plugins/index.json', 'plugins/counters/plugin.json', 'plugins/counters/web.js', 'plugins/counters/game.lua', 'plugins/weather/plugin.json', 'plugins/weather/web.js', 'plugins/weather/game.lua'];
 
 // turn "http://host/assets/x.png" into "assets/x.png" (same-origin only)
 function relSrc(src) {
@@ -997,16 +997,7 @@ export const debug = {
         this.popup.toast("Title background changed (remember SAVE CONFIG)");
     },
     updateTitleText() { this.engine.gameConfig.titleScreen.titleText = this.$('title-text-input').value; this.updateTitleScreenElements(); },
-    updateTitleScreenElements() {
-        const ts = this.engine.gameConfig.titleScreen;
-        const h1 = document.querySelector('#startScreen h1');
-        h1.textContent = ts.titleText; h1.style.display = ts.showTitleText === false ? 'none' : '';
-        this.$('start-game-button').textContent = ts.startButtonText;
-        const hasSave = !!this.engine.latestSave();
-        this.$('continue-button').classList.toggle('hidden', !hasSave);
-        this.$('load-title-button').classList.toggle('hidden', !hasSave);
-        this.$('startScreen').style.backgroundImage = `url("${this.engine.src(ts.backgroundImage)}")`;
-    },
+    updateTitleScreenElements() { this.engine.img(this.engine.gameConfig.titleScreen.backgroundImage); },   // the title is drawn on the canvas
 
     download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); },
 
@@ -1056,6 +1047,7 @@ export const debug = {
         Object.values(cfg.hotspots).forEach(l => l.forEach(h => { addI(h.customImage); addAnims(h); }));
         Object.values(cfg.items || {}).forEach(it => addI(it && it.icon));
         Object.values(cfg.audio).forEach(s => { if (s) auds.add(s); });
+        Object.values(((cfg.ui || {}).layout || {}).screens || {}).forEach(sc => { addI(sc.bgImage); (sc.elements || []).forEach(e => addI(e.image)); });
         return { imgs, auds, other };
     },
 
@@ -1096,7 +1088,14 @@ export const debug = {
                 return path;
             };
             for (const s of Object.values(cfg.images)) for (const k of ['bg', 'path', 'fg']) if (s[k]) s[k] = fileFor(s[k], 'img');
-            for (const k of Object.keys(cfg.ui)) cfg.ui[k] = fileFor(cfg.ui[k], 'img');
+            for (const k of Object.keys(cfg.ui)) if (typeof cfg.ui[k] === 'string') cfg.ui[k] = fileFor(cfg.ui[k], 'img');
+            Object.values(((cfg.ui || {}).layout || {}).screens || {}).forEach(sc => { if (sc.bgImage) sc.bgImage = fileFor(sc.bgImage, 'img'); (sc.elements || []).forEach(e => { if (e.image) e.image = fileFor(e.image, 'img'); }); });
+            // plugins: Lua code goes to plugins/<id>/game.lua, the config keeps id, name, settings
+            const pl = cfg.plugins || {};
+            for (const [id, p] of Object.entries(pl)) {
+                if (p.lua && p.enabled !== false) zip.file(`plugins/${id}/game.lua`, p.lua);
+                pl[id] = { name: p.name, version: p.version, enabled: p.enabled !== false && !!p.lua, settings: p.settings || {} };
+            }
             cfg.knight.image = fileFor(cfg.knight.image, 'img');
             cfg.titleScreen.backgroundImage = fileFor(cfg.titleScreen.backgroundImage, 'img');
             if (cfg.player && cfg.player.customImage) cfg.player.customImage = fileFor(cfg.player.customImage, 'img');

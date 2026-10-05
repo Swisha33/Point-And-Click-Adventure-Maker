@@ -25,7 +25,7 @@ export const adventure = {
     // ---------- state ----------
     advReset() {
         this.adv = {
-            inv: [], held: null, flags: {}, vis: {}, once: {},
+            inv: [], held: null, flags: {}, vis: {}, once: {}, plugins: {},
             seq: null, verbMenu: null, choices: null, pendingAct: null, notice: null
         };
     },
@@ -43,6 +43,7 @@ export const adventure = {
             if (c.type === 'noflag') return !a.flags[c.key];
             if (c.type === 'item') return a.inv.includes(c.key);
             if (c.type === 'noitem') return !a.inv.includes(c.key);
+            if (this.plugins) { const r = this.plugins.cond(c); if (r !== undefined) return r; }
             return true;
         });
     },
@@ -111,6 +112,9 @@ export const adventure = {
                     this.updateUI();
                 } break;
                 case 'goto': if (key && this.gameConfig.spawns[key]) { this.adv.seq = null; this.closeChoices(); this.setScene(key); return; } break;
+                case 'menu': if (key && this.uiDo) this.uiDo({ type: 'menu', screen: key }); break;
+                case 'closemenu': if (this.ui) this.ui.menus.pop(); break;
+                default: if (this.plugins) this.plugins.action(act, h);
             }
         }
         this.updateUI();
@@ -259,7 +263,7 @@ export const adventure = {
     invRects() {
         const inv = this.adv ? this.adv.inv : [];
         if (!inv.length || this.adv.invClosed) return [];
-        const size = 58, gap = 6, x0 = 12, y0 = VH - size - 10;
+        const size = 58, gap = 6, x0 = (this.hudLeft ? this.hudLeft() : 0) + 12, y0 = VH - size - 10;
         return inv.map((id, i) => ({ id, x: x0 + i * (size + gap), y: y0, w: size, h: size }));
     },
     // the small tab that opens / closes the inventory bar
@@ -267,7 +271,7 @@ export const adventure = {
         const a = this.adv; if (!a || !a.inv.length) return null;
         const r = this.invRects();
         if (r.length) { const l = r[r.length - 1]; return { x: l.x + l.w + 10, y: l.y + 14, w: 24, h: 30, open: true }; }
-        return { x: 6, y: VH - 58, w: 64, h: 48, open: false };
+        return { x: (this.hudLeft ? this.hudLeft() : 0) + 6, y: VH - 58, w: 64, h: 48, open: false };
     },
     verbRects() {
         const m = this.adv && this.adv.verbMenu; if (!m) return [];
@@ -278,7 +282,8 @@ export const adventure = {
     },
     choiceRects() {
         const ch = this.adv && this.adv.choices; if (!ch) return [];
-        const rowH = 34, w = 760, x = (VW - w) / 2;
+        const left = this.hudLeft ? this.hudLeft() : 0;
+        const rowH = 34, w = Math.min(760, VW - left - 20), x = left + (VW - left - w) / 2;
         const y0 = VH - 84 - ch.list.length * rowH;
         return ch.list.map((o, i) => ({ i, text: o.c.text, x, y: y0 + i * rowH, w, h: rowH - 4 }));
     },
@@ -369,7 +374,8 @@ export const adventure = {
         return {
             v: 1, time: Date.now(), scene: this.scene, x: Math.round(this.knight.x), y: Math.round(this.knight.y), dignity: this.dignity,
             inv: a.inv.slice(), flags: Object.assign({}, a.flags), vis: Object.assign({}, a.vis), once: Object.assign({}, a.once),
-            unlocked: JSON.parse(JSON.stringify(this.unlockedExits)), dialogIdx, found, followers
+            unlocked: JSON.parse(JSON.stringify(this.unlockedExits)), dialogIdx, found, followers,
+            plugins: JSON.parse(JSON.stringify(a.plugins || {}))
         };
     },
     saveGame(slot) {
@@ -384,7 +390,7 @@ export const adventure = {
         this.restoreFollowers();
         this.advReset();
         const a = this.adv;
-        a.inv = d.inv || []; a.flags = d.flags || {}; a.vis = d.vis || {}; a.once = d.once || {};
+        a.inv = d.inv || []; a.flags = d.flags || {}; a.vis = d.vis || {}; a.once = d.once || {}; a.plugins = d.plugins || {};
         this.unlockedExits = d.unlocked || {};
         this.dignity = d.dignity ?? this.dignity;
         const all = Object.values(this.gameConfig.hotspots).flat();

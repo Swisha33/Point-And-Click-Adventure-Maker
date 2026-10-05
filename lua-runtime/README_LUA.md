@@ -57,17 +57,33 @@ Titel/Title-ID ändern: `--title "Mein Spiel" --title-id ABCD12345`.
 | ◯ | zurück / Menü |
 | SELECT | Editor (oder Dignity-Feld gedrückt halten) |
 
-## Versteckter Editor im Spiel
+## Versteckter Editor im Spiel (= Maker auf dem Gerät)
 
 **Dignity-Feld im Seitenmenü 1 Sekunde gedrückt halten** · F2 (PC) · SELECT (Vita).
-Modi: SELECT/EDIT (Objekt antippen → Name, Hitbox, Form, Bildgröße, Nähe-Einblenden,
-versteckt starten, hinlaufen, spiegeln, löschen), MOVE (Hotspots, Text, Spawn und grüne
-Laufpunkte ziehen), + HOTSPOT, + ITEM PICKUP, DELETE. **SAVE EDITS** speichert sie im Speicherordner (`config_edit.lua`;
-Vita: `ux0:/data/SirLicks/`). **RESET EDITS** löscht das wieder.
-Ausschalten für die fertige Version: `allowDebug = false` in `game/config.lua`.
 
-Größere Änderungen (neue Level, Bilder, Dialoge) machst du im Browser-Editor und
-exportierst neu.
+- SELECT/EDIT: Objekt antippen → Name, Hitbox, Form, **PICTURE FROM FILES**, Bildgröße, Nähe-Einblenden,
+  versteckt starten, hinlaufen, spiegeln, löschen
+- MOVE (Hotspots, Text, Spawn, grüne Laufpunkte), + HOTSPOT, + PICKUP, DELETE
+- **+ LEVEL** (neues Level, Hintergrund aus dem Speicher), **BACKGROUND**, **WALK AREA** (Laufbereich malen)
+- **EXITS** (Ausgang-Buttons + automatischer Rückweg)
+- **UI LAYOUT**: Titelbild / HUD / Menüs bearbeiten – Element antippen und ziehen, grüne Ecke = Größe,
+  + BUTTON / + TEXT / + PICTURE / + NEW MENU, Text, Funktion (◀ ▶), Ziel-Szene/-Menü, Bild aus dem Speicher,
+  Einpassen, Schrift, Farben, kopieren, löschen. „PANEL >>“ schiebt das Editor-Menü auf die andere Seite.
+- **PLUGINS**: Werkzeuge der installierten Plugins
+- **SPRITE EDITOR** (Vita): startet eine installierte App per Title-ID, z. B. deine LibreSprite-Portierung
+  (vorher wird gespeichert). Danach das Bild mit PICTURE FROM FILES holen.
+
+Bilder suchen: Vita `ux0:data/SirLicks/images`, `ux0:picture`, `ux0:data`, ganzer Speicher ·
+PC: Bild ins Fenster ziehen (landet im LÖVE-Speicherordner unter `images/`) · Android: `images/` im Speicherordner.
+
+**SAVE EDITS** speichert im Speicherordner (`config_edit.lua`; Vita: `ux0:/data/SirLicks/`). **RESET EDITS** löscht das wieder.
+Ausschalten für die fertige Version: `allowDebug = false` in `game/config.lua`.
+Dialoge / Reaktionen macht man weiter im Browser-Editor.
+
+## Plugins
+
+Der Export legt aktivierte Plugins nach `plugins/<id>/game.lua`; die Engine lädt sie beim Start
+(Fehler erscheinen als Meldung, das Spiel läuft weiter). Siehe `PLUGINS.md` im Web-Projekt.
 
 ## Hinweise
 
