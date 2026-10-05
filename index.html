@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sir Licks-a-Lot</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:,">
+    <!-- JSZip for the export buttons -->
+    <script src="vendor/jszip.min.js"></script>
+</head>
+<body>
+    <!--
+      This file is the SOURCE of the page. Do not overwrite it with a copy of the
+      running page (the old "DOWNLOAD PLAYABLE" did that and broke the editor).
+      Dialogs, buttons and panels are created by game.js / editor.js at runtime.
+    -->
+    <div id="gameContainer">
+        <!-- Start Screen -->
+        <div id="startScreen">
+            <button id="title-debug-btn">⚙️ DEBUG</button>
+            <h1>Sir Licks-a-Lot</h1>
+            <button id="start-fullscreen-btn">⛶ Fullscreen</button>
+            <button id="start-game-button">Start Adventure</button>
+            <div id="title-save-row">
+                <button id="continue-button" class="title-small-btn hidden">Continue</button>
+                <button id="load-title-button" class="title-small-btn hidden">Load Game</button>
+            </div>
+        </div>
+
+        <!-- UI Layer (filled by game.js) -->
+        <div id="uiLayer" class="hidden">
+            <div id="stats"></div>
+            <div id="buttons"></div>
+        </div>
+
+        <!-- Main Game Canvas -->
+        <canvas id="gameCanvas" width="960" height="540"></canvas>
+    </div>
+
+    <script>
+        // buttons on the start screen (engine is created by game.js)
+        document.getElementById('title-debug-btn').onclick = () => window.engine && window.engine.toggleDebugMenu();
+        document.getElementById('start-fullscreen-btn').onclick = () => window.engine && window.engine.toggleFullscreen();
+        document.getElementById('start-game-button').onclick = () => window.engine && window.engine.startGame();
+        document.getElementById('continue-button').onclick = () => { const e = window.engine; if (!e) return; const l = e.latestSave(); if (l) e.loadGame(l.slot); };
+        document.getElementById('load-title-button').onclick = () => window.engine && window.engine.saveMenu('load');
+    </script>
+    <script type="module" src="game.js"></script>
+</body>
+</html>
