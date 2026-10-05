@@ -82,7 +82,9 @@ function toLua(v, ind = '') {
     return '{\n' + keys.map(k => ind2 + (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && !['and', 'end', 'in', 'or', 'not', 'nil', 'true', 'false', 'if', 'then', 'else', 'elseif', 'for', 'do', 'while', 'repeat', 'until', 'function', 'local', 'return', 'break', 'goto'].includes(k) ? k : `[${toLua(k)}]`) + ' = ' + toLua(v[k], ind2)).join(',\n') + '\n' + ind + '}';
 }
 
-import { spriteInfo, spriteFrame } from './sprite.js';
+import { spriteInfo, spriteFrame, BASE_ANIMS, DIR_ANIMS, ANIM_LABELS } from './sprite.js';
+const ALL_ANIMS = [...BASE_ANIMS, ...DIR_ANIMS];
+const OPTIONAL_ANIMS = ['run', ...DIR_ANIMS];   // need a tick to be used
 import { reactionsEditor, condsEditor, cleanReactions, makeCtx, showItemsDialog, showInteractionDialog } from './rules-editor.js';
 
 // pointer helper: 1 finger/mouse = drag, 2 fingers = pinch, mouse wheel = pinch
@@ -115,7 +117,7 @@ export const debug = {
     charOffX: 0, charOffY: 0, hitboxOffX: 0, hitboxOffY: 0, sheetX: 0, sheetY: 0,
     dragTargetType: 'image',
     bgEditScale: 1, bgEditX: 0, bgEditY: 0, bgPreviewImg: null, currentDialogues: [],
-    previewTick: 0, previewInterval: null, imageChosen: false, animImages: { idle: null, walk: null },
+    previewTick: 0, previewInterval: null, imageChosen: false, animImages: {},
     editorType: 'hotspot',
 
     init(eng) { this.engine = eng; },
@@ -170,7 +172,7 @@ export const debug = {
                     <p class="help-text" id="gesture-help"></p>
                     <div class="char-checkbox anim-only preview-anim-row">
                         <label><input type="checkbox" id="preview-animate"> Play</label>
-                        <select id="preview-anim"><option value="idle">Idle</option><option value="walk">Walk</option></select>
+                        <select id="preview-anim">${ALL_ANIMS.map(a => `<option value="${a}">${ANIM_LABELS[a]}</option>`).join('')}</select>
                     </div>
                 </div>
                 <div class="char-controls-pane">
@@ -202,17 +204,31 @@ export const debug = {
                         </div>
                         <p class="help-text" id="frame-size-info"></p>
                         <div class="section-header">Animations</div>
+                        <div class="char-checkbox"><label><input type="checkbox" id="char-dirs"> Up / down animations (top-down games): used when walking up or down</label></div>
                         <table class="anim-table">
-                            <tr><th></th><th>Row</th><th>Frames</th><th>Speed</th><th>Own image (optional)</th></tr>
-                            ${['idle', 'walk'].map(a => `<tr id="anim-tr-${a}"><td>${a === 'idle' ? 'Idle' : 'Walk'}</td>
+                            <tr><th>Use</th><th></th><th>Row</th><th>Col</th><th>Frames</th><th>Speed</th><th>Own image (optional)</th></tr>
+                            ${ALL_ANIMS.map(a => `<tr id="anim-tr-${a}" class="${DIR_ANIMS.includes(a) ? 'dir-row' : ''}">
+                                <td>${OPTIONAL_ANIMS.includes(a) ? `<input type="checkbox" id="an-${a}-on">` : '✓'}</td>
+                                <td>${ANIM_LABELS[a]}</td>
                                 <td><input type="number" id="an-${a}-row" min="1" value="1"></td>
+                                <td><input type="number" id="an-${a}-col" min="1" value="1"></td>
                                 <td><input type="number" id="an-${a}-frames" min="1" value="1"></td>
                                 <td><input type="number" id="an-${a}-speed" min="1" value="10"></td>
-                                <td class="anim-img-cell"><input type="file" id="an-${a}-file" accept="image/*"><span id="an-${a}-img" class="anim-img-name"></span><button id="an-${a}-clear" class="tiny-btn">✕</button></td></tr>`).join('')}
+                                <td class="anim-img-cell"><input type="file" id="an-${a}-file" accept="image/*"><span id="an-${a}-img" class="anim-img-name"></span>
+                                    <span class="anim-grid" id="an-${a}-grid"><input type="number" id="an-${a}-gc" min="1" value="1" title="columns">×<input type="number" id="an-${a}-gr" min="1" value="1" title="rows"></span>
+                                    <button id="an-${a}-clear" class="tiny-btn">✕</button></td></tr>`).join('')}
                         </table>
-                        <p class="help-text">Row 1 = top row of the sheet. Speed = ticks per frame (smaller = faster).<br>
-                        Own image = a separate strip with all frames side by side (e.g. an idle animation the main sheet doesn't have).
-                        Idle plays while standing, Walk while moving.</p>
+                        <p class="help-text">Row/Col = first frame (1 = top / left). Frames continue to the right and then on the next row,
+                        so an animation can span several rows. Speed = ticks per frame (smaller = faster).<br>
+                        Own image = a separate sheet for this animation; its grid (columns × rows) is detected automatically.
+                        Idle plays while standing, Walk while moving, Run after a double tap (unticked Run = Walk played faster).</p>
+                    </div>
+
+                    <div class="player-only">
+                        <div class="section-header">Movement</div>
+                        <label>Walk speed: <span id="mv-walk-val"></span><input type="range" id="mv-walk" min="1" max="20" step="0.5"></label>
+                        <label>Run speed: <span id="mv-run-val"></span><input type="range" id="mv-run" min="1" max="30" step="0.5"></label>
+                        <div class="char-checkbox"><label><input type="checkbox" id="mv-allowrun"> Double tap to run</label></div>
                     </div>
 
                     <div class="npc-only">
@@ -272,32 +288,38 @@ export const debug = {
         this.$('btn-drag-grid').onclick = () => this.setDragMode('grid');
         this.$('btn-drag-box').onclick = () => this.setDragMode('hitbox');
         ['char-scale', 'char-hb-w', 'char-hb-h', 'char-rect', 'char-mirror', 'char-cols', 'char-rows',
-         'an-idle-row', 'an-idle-frames', 'an-idle-speed', 'an-walk-row', 'an-walk-frames', 'an-walk-speed'].forEach(id => this.$(id).addEventListener('input', () => this.updateCharPreview()));
+         ...ALL_ANIMS.flatMap(a => [`an-${a}-row`, `an-${a}-col`, `an-${a}-frames`, `an-${a}-speed`, `an-${a}-gc`, `an-${a}-gr`])].forEach(id => this.$(id).addEventListener('input', () => this.updateCharPreview()));
         this.$('char-cols').addEventListener('change', () => {   // new column count: frames follow unless set by hand
             const c = parseInt(this.$('char-cols').value) || 1;
-            ['idle', 'walk'].forEach(a => { if (!this.animImages[a] && parseInt(this.$(`an-${a}-frames`).value) > c) this.$(`an-${a}-frames`).value = c; });
-            if (this.editorType === 'character' && !this.animImages.idle) this.$('an-idle-frames').value = c;
-            if (!this.animImages.walk) this.$('an-walk-frames').value = c;
+            ALL_ANIMS.forEach(a => { if (!this.animImages[a] && parseInt(this.$(`an-${a}-frames`).value) > c * (parseInt(this.$('char-rows').value) || 1)) this.$(`an-${a}-frames`).value = c; });
             this.updateCharPreview();
         });
-        ['idle', 'walk'].forEach(a => {
+        OPTIONAL_ANIMS.forEach(a => this.$(`an-${a}-on`).addEventListener('change', () => { this.updateAnimRows(); if (this.$(`an-${a}-on`).checked) { this.$('preview-anim').value = a; } this.updateCharPreview(); }));
+        this.$('char-dirs').addEventListener('change', () => this.updateAnimRows());
+        ALL_ANIMS.forEach(a => {
             this.$(`an-${a}-file`).onchange = async (ev) => {
                 const f = ev.target.files[0]; if (!f) return;
                 const path = await this.engine.putMedia(f, 'img');
                 const im = await loadImg(this.engine.src(path));
-                this.animImages[a] = path;
                 this.engine.img(path);
-                // guess the frame count: square-ish frames side by side
-                if (im) { const g = guessGrid(im); this.$(`an-${a}-frames`).value = g.cols; this.popup.toast(`${a === 'idle' ? 'Idle' : 'Walk'} image: ${g.cols} frames ${g.sure ? 'found' : 'guessed - check Frames'}`); }
+                const g = im ? guessGrid(im) : { cols: 1, rows: 1, sure: false };
+                this.animImages[a] = path;
+                this.$(`an-${a}-gc`).value = g.cols; this.$(`an-${a}-gr`).value = g.rows;
+                this.$(`an-${a}-row`).value = 1; this.$(`an-${a}-col`).value = 1;
+                this.$(`an-${a}-frames`).value = g.cols * g.rows;
+                if (this.$(`an-${a}-on`)) this.$(`an-${a}-on`).checked = true;
+                this.popup.toast(`${ANIM_LABELS[a]}: ${g.cols} × ${g.rows} frames ${g.sure ? 'found' : 'guessed - check the grid'}`);
                 ev.target.value = '';
+                this.updateAnimRows();
                 this.$('preview-anim').value = a; this.$('preview-animate').checked = true; this.startPreviewAnim();
-                this.updateAnimImageLabels();
             };
-            this.$(`an-${a}-clear`).onclick = () => { this.animImages[a] = null; this.updateAnimImageLabels(); this.updateCharPreview(); };
+            this.$(`an-${a}-clear`).onclick = () => { this.animImages[a] = null; this.updateAnimRows(); this.updateCharPreview(); };
         });
+        const speedLabel = () => { this.$('mv-walk-val').textContent = this.$('mv-walk').value; this.$('mv-run-val').textContent = this.$('mv-run').value; };
+        this.$('mv-walk').addEventListener('input', speedLabel); this.$('mv-run').addEventListener('input', speedLabel);
         this.$('preview-animate').addEventListener('change', (e) => { if (e.target.checked) this.startPreviewAnim(); else this.stopPreviewAnim(); });
         this.$('preview-anim').addEventListener('change', () => this.updateCharPreview());
-        this.$('char-follow').addEventListener('change', () => this.updateWalkRow());
+        this.$('char-follow').addEventListener('change', () => this.updateAnimRows());
         this.$('char-file').addEventListener('change', (e) => this.handleCharFile(e));
         this.$('char-clear-img').onclick = () => { this.imageChosen = false; this.chosenImagePath = null; this.charPreviewImg = this.defaultPreviewImage(); this.$('char-file').value = ''; this.updateCharPreview(); };
         this.$('char-add-btn').onclick = () => this.saveCharacter();
@@ -403,7 +425,7 @@ export const debug = {
         this.$('char-kind').value = isPlayer ? 'hotspot' : type;
         this.$('char-delete-btn').style.display = isPlayer ? 'none' : '';
         if (isHotspot && this.dragTargetType === 'grid') this.setDragMode('image');
-        this.updateWalkRow();
+        this.updateAnimRows();
         const name = this.$('char-name').value;
         this.$('char-editor-title').textContent = isPlayer ? 'Edit Player' : `${this.editingChar ? 'Edit' : 'New'} ${isHotspot ? 'Hotspot' : 'Character'}${name ? ': ' + name : ''}`;
         if (!this.imageChosen) this.charPreviewImg = this.defaultPreviewImage();
@@ -441,19 +463,26 @@ export const debug = {
         else this.showCharacterCreator(null, false, kind === 'character');
     },
 
-    updateWalkRow() {
-        const show = this.editorType === 'player' || (this.editorType === 'character' && this.$('char-follow').checked);
-        this.$('anim-tr-walk').style.display = show ? '' : 'none';
-        if (!show && this.$('preview-anim').value === 'walk') this.$('preview-anim').value = 'idle';
-        this.$('preview-anim').querySelector('option[value=walk]').disabled = !show;
-    },
-    updateAnimImageLabels() {
-        ['idle', 'walk'].forEach(a => {
-            const p = this.animImages[a];
-            this.$(`an-${a}-img`).textContent = p ? '✓ own image' : '';
-            this.$(`an-${a}-row`).disabled = !!p;
-            this.$(`an-${a}-clear`).style.display = p ? '' : 'none';
+    // show the animation rows that make sense for what is edited
+    updateAnimRows() {
+        const moves = this.editorType === 'player' || (this.editorType === 'character' && this.$('char-follow').checked);
+        const dirs = this.$('char-dirs').checked;
+        ALL_ANIMS.forEach(a => {
+            const base = a.split('_')[0];
+            const show = (base === 'idle' || moves) && (!DIR_ANIMS.includes(a) || dirs);
+            this.$(`anim-tr-${a}`).style.display = show ? '' : 'none';
+            const on = !OPTIONAL_ANIMS.includes(a) || this.$(`an-${a}-on`).checked;
+            const opt = this.$('preview-anim').querySelector(`option[value=${a}]`);
+            opt.disabled = !show || !on;
+            const own = !!this.animImages[a];
+            this.$(`an-${a}-img`).textContent = own ? '✓' : '';
+            this.$(`an-${a}-grid`).style.display = own ? '' : 'none';
+            this.$(`an-${a}-clear`).style.display = own ? '' : 'none';
+            this.$(`anim-tr-${a}`).classList.toggle('anim-off', !on);
         });
+        const sel = this.$('preview-anim');
+        if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled) sel.value = 'idle';
+        this.$('char-creator-dialog').querySelectorAll('.player-only').forEach(el => el.style.display = this.editorType === 'player' ? '' : 'none');
     },
 
     // sprite description from the form (same structure the game reads)
@@ -464,9 +493,11 @@ export const debug = {
         const isHotspot = this.editorType === 'hotspot';
         const cols = isHotspot ? 1 : int('char-cols'), rows = isHotspot ? 1 : int('char-rows');
         const anim = (a) => {
-            const o = { row: Math.min(rows, int(`an-${a}-row`)) - 1, frames: int(`an-${a}-frames`), speed: int(`an-${a}-speed`, 10) };
-            if (this.animImages[a]) o.image = this.animImages[a];
-            else o.frames = Math.min(o.frames, cols);
+            const own = this.animImages[a];
+            const gc = own ? int(`an-${a}-gc`) : cols, gr = own ? int(`an-${a}-gr`) : rows;
+            const o = { row: Math.min(gr, int(`an-${a}-row`)) - 1, col: Math.min(gc, int(`an-${a}-col`)) - 1, frames: int(`an-${a}-frames`), speed: int(`an-${a}-speed`, 10) };
+            o.frames = Math.min(o.frames, Math.max(1, gc * gr - (o.row * gc + o.col)));
+            if (own) { o.image = own; o.cols = gc; o.rows = gr; }
             return o;
         };
         const s = {
@@ -476,7 +507,13 @@ export const debug = {
             sheetX: Math.round(this.sheetX), sheetY: Math.round(this.sheetY),
             offX: Math.round(this.charOffX), offY: Math.round(this.charOffY)
         };
-        s.anims = isHotspot ? { idle: { row: 0, frames: 1, speed: 10 }, walk: { row: 0, frames: 1, speed: 10 } } : { idle: anim('idle'), walk: anim('walk') };
+        if (isHotspot) s.anims = { idle: { row: 0, frames: 1, speed: 10 }, walk: { row: 0, frames: 1, speed: 10 } };
+        else {
+            s.anims = { idle: anim('idle'), walk: anim('walk') };
+            if (this.$('an-run-on').checked) s.anims.run = anim('run');
+            s.dirs = this.$('char-dirs').checked;
+            if (s.dirs) DIR_ANIMS.forEach(a => { if (this.$(`an-${a}-on`).checked) s.anims[a] = anim(a); });
+        }
         s.totalFrames = s.anims.idle.image ? cols : s.anims.idle.frames;   // older engines: looping NPC frames
         s.animSpeed = s.anims.idle.speed;
         return s;
@@ -487,15 +524,26 @@ export const debug = {
             ? { w: this.charPreviewImg.naturalWidth, h: this.charPreviewImg.naturalHeight } : this.engine.sizeOf(p);
         const info = spriteInfo(e, kind === 'hotspot' ? 'character' : kind, sizeOf);
         this.$('char-cols').value = info.cols; this.$('char-rows').value = info.rows;
-        this.animImages = { idle: null, walk: null };
-        ['idle', 'walk'].forEach(a => {
-            const an = info.anims[a];
+        this.animImages = {};
+        const stored = e.anims || {};
+        this.$('char-dirs').checked = !!e.dirs;
+        ALL_ANIMS.forEach(a => {
+            const an = info.anims[a] || stored[a] || info.anims[a.split('_')[0]] || info.anims.idle;
             this.$(`an-${a}-row`).value = (an.row || 0) + 1;
-            this.$(`an-${a}-frames`).value = an.frames;
-            this.$(`an-${a}-speed`).value = an.speed;
-            if (an.image) { this.animImages[a] = an.image; this.engine.img(an.image); }
+            this.$(`an-${a}-col`).value = (an.col || 0) + 1;
+            this.$(`an-${a}-frames`).value = an.frames || 1;
+            this.$(`an-${a}-speed`).value = an.speed || 10;
+            this.$(`an-${a}-gc`).value = an.cols || an.frames || 1;
+            this.$(`an-${a}-gr`).value = an.rows || 1;
+            if (OPTIONAL_ANIMS.includes(a)) this.$(`an-${a}-on`).checked = !!stored[a];
+            if (an.image && (stored[a] || !OPTIONAL_ANIMS.includes(a))) { this.animImages[a] = an.image; this.engine.img(an.image); }
         });
-        this.updateAnimImageLabels();
+        // movement (player)
+        const kc = this.engine.gameConfig.knight;
+        this.$('mv-walk').value = kc.speed || 6; this.$('mv-run').value = kc.runSpeed || Math.round((kc.speed || 6) * 1.8);
+        this.$('mv-allowrun').checked = kc.allowRun !== false;
+        this.$('mv-walk-val').textContent = this.$('mv-walk').value; this.$('mv-run-val').textContent = this.$('mv-run').value;
+        this.updateAnimRows();
     },
 
     showCharacterCreator(existingChar = null, isPlayer = false, forceAsCharacter = false) {
@@ -636,11 +684,13 @@ export const debug = {
             const g = this.editorType === 'hotspot' ? { cols: 1, rows: 1, sure: true } : guessGrid(im);
             const cols = g.cols;
             this.$('char-cols').value = cols; this.$('char-rows').value = g.rows;
-            this.animImages = { idle: null, walk: null };
-            this.$('an-idle-row').value = 1; this.$('an-walk-row').value = 1;
-            this.$('an-idle-frames').value = this.editorType === 'player' ? 1 : cols;
-            this.$('an-walk-frames').value = cols;
-            this.updateAnimImageLabels();
+            this.animImages = {};
+            ALL_ANIMS.forEach(a => { this.$(`an-${a}-row`).value = 1; this.$(`an-${a}-col`).value = 1; this.$(`an-${a}-frames`).value = cols; });
+            if (g.rows > 1) {   // several rows: guess idle = row 1, walk = row 2, run = row 3 (adjust if needed)
+                this.$('an-walk-row').value = Math.min(2, g.rows); this.$('an-run-row').value = Math.min(3, g.rows);
+            }
+            this.$('an-idle-frames').value = this.editorType === 'player' && g.rows === 1 ? 1 : cols;
+            this.updateAnimRows();
             const fh = im.naturalHeight / g.rows;
             this.$('char-scale').value = fh > 200 ? Math.max(0.1, Math.round(150 / fh * 10) / 10) : 1.0;
             this.charOffX = 0; this.charOffY = 0; this.sheetX = 0; this.sheetY = 0;
@@ -659,7 +709,7 @@ export const debug = {
             name: this.$('char-name').value,
             scale: num('char-scale') || 1,
             cols: spr.cols, rows: spr.rows, frameWidth: spr.frameWidth, frameHeight: spr.frameHeight,
-            totalFrames: spr.totalFrames, animSpeed: spr.animSpeed, anims: spr.anims,
+            totalFrames: spr.totalFrames, animSpeed: spr.animSpeed, anims: spr.anims, dirs: spr.dirs || undefined,
             offX: spr.offX, offY: spr.offY,
             hboxX: Math.round(this.hitboxOffX), hboxY: Math.round(this.hitboxOffY),
             sheetX: spr.sheetX, sheetY: spr.sheetY,
@@ -674,9 +724,10 @@ export const debug = {
         const cfg = this.engine.gameConfig;
 
         if (type === 'player') {
+            Object.assign(cfg.knight, { speed: parseFloat(this.$('mv-walk').value) || 6, runSpeed: parseFloat(this.$('mv-run').value) || 11, allowRun: this.$('mv-allowrun').checked });
             if (!hasImg) { // default knight: keep its tuning in cfg.knight
                 Object.assign(cfg.knight, {
-                    offX: data.offX, offY: data.offY, baseScale: data.scale, cols: data.cols, rows: data.rows,
+                    offX: data.offX, offY: data.offY, baseScale: data.scale, cols: data.cols, rows: data.rows, dirs: data.dirs,
                     frameWidth: data.frameWidth, frameHeight: data.frameHeight, frames: data.anims.walk.frames,
                     animSpeed: data.anims.walk.speed, anims: data.anims, sheetX: data.sheetX, sheetY: data.sheetY
                 });
@@ -706,7 +757,7 @@ export const debug = {
                 list.push(target);
             }
             if (this.resetWalkTo) delete target.walkTo;
-            ['customImage', 'anims', 'reactions', 'visibleIf', 'startHidden', 'noWalk', 'discoverLevel', 'discoverMode', 'discoverText', 'discoverMsg', 'discoverHide', 'isDiscovered', '_found'].forEach(k => delete target[k]);
+            ['customImage', 'anims', 'dirs', 'reactions', 'visibleIf', 'startHidden', 'noWalk', 'discoverLevel', 'discoverMode', 'discoverText', 'discoverMsg', 'discoverHide', 'isDiscovered', '_found'].forEach(k => delete target[k]);
             Object.keys(data).forEach(k => { if (data[k] === undefined) delete data[k]; });
             Object.assign(target, data);
         }

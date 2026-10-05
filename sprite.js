@@ -6,11 +6,20 @@
 //   cols, rows              grid of the sheet (frame = sheet size / grid)
 //   frameWidth, frameHeight frame size in pixels (written by the editor, = sheet / grid)
 //   sheetX, sheetY          offset of the grid inside the sheet
-//   anims = { idle: {row, frames, speed, image?}, walk: {row, frames, speed, image?} }
-//     row    = which grid row the animation uses
-//     image  = optional separate sheet (one row, `frames` columns) instead of the main sheet
-// Older projects without `anims` get: idle = first frame (player) / looping all frames (characters),
-// walk = all frames of row 0.
+//   dirs                    true = use the _up / _down animations when walking up or down (top-down games)
+//   anims = { idle, walk, run, idle_up, walk_up, run_up, idle_down, walk_down, run_down }
+//     each: { row, col, frames, speed, image?, cols?, rows? }
+//     row/col = first frame (0-based) in the grid; frames continue left→right, then on the next row
+//     image   = optional separate sheet with its own grid (cols × rows) instead of the main sheet
+// Older projects: idle = first frame (player) / looping all frames (characters), walk = row 0,
+// run = walk played faster.
+
+export const BASE_ANIMS = ['idle', 'walk', 'run'];
+export const DIR_ANIMS = ['idle_up', 'walk_up', 'run_up', 'idle_down', 'walk_down', 'run_down'];
+export const ANIM_LABELS = {
+    idle: 'Idle', walk: 'Walk', run: 'Run',
+    idle_up: 'Idle ↑', walk_up: 'Walk ↑', run_up: 'Run ↑', idle_down: 'Idle ↓', walk_down: 'Walk ↓', run_down: 'Run ↓'
+};
 
 export function spriteInfo(o, kind, sizeOf) {
     const image = o.customImage || o.image;
@@ -22,32 +31,57 @@ export function spriteInfo(o, kind, sizeOf) {
     const fh = o.frameHeight || sz.h / rows;
     const speed = o.animSpeed || (kind === 'player' ? 6 : 10);
     const a = o.anims || {};
-    return {
-        image, cols, rows, fw, fh,
-        sheetX: o.sheetX || 0, sheetY: o.sheetY || 0,
-        anims: {
-            idle: Object.assign({ row: 0, frames: kind === 'player' ? 1 : total, speed }, a.idle || {}),
-            walk: Object.assign({ row: 0, frames: total, speed }, a.walk || {})
-        }
+    const norm = (src, def) => Object.assign({ row: 0, col: 0 }, def, src || {});
+    const anims = {
+        idle: norm(a.idle, { frames: kind === 'player' ? 1 : total, speed }),
+        walk: norm(a.walk, { frames: total, speed })
     };
+    anims.run = a.run ? norm(a.run, {}) : Object.assign({}, anims.walk, { speed: Math.max(1, Math.round(anims.walk.speed * 0.6)) });
+    if (o.dirs) DIR_ANIMS.forEach(n => { if (a[n]) anims[n] = norm(a[n], { frames: 1, speed }); });
+    return { image, cols, rows, fw, fh, sheetX: o.sheetX || 0, sheetY: o.sheetY || 0, anims, dirs: !!o.dirs };
+}
+
+// which animation to play: base = idle | walk | run, dir = side | up | down
+// returns { name, mirrorOk }: up/down views are never mirrored
+export function pickAnim(info, base, dir) {
+    if (info.dirs && (dir === 'up' || dir === 'down')) {
+        const n = base + '_' + dir;
+        if (info.anims[n]) return { name: n, mirrorOk: false };
+    }
+    return { name: info.anims[base] ? base : 'idle', mirrorOk: true };
+}
+
+// grid of the sheet an animation uses
+export function animGrid(info, a, sizeOf) {
+    if (a && a.image) {
+        const s = sizeOf(a.image);
+        if (s) {
+            const cols = a.cols || Math.max(1, Math.floor(a.frames) || 1), rows = a.rows || 1;
+            return { path: a.image, cols, fw: s.w / cols, fh: s.h / rows, ox: 0, oy: 0 };
+        }
+    }
+    return { path: info.image, cols: info.cols, fw: info.fw, fh: info.fh, ox: info.sheetX, oy: info.sheetY };
 }
 
 // source rectangle of the current frame + draw size factor (keeps the height of the main frame,
-// so a separate idle sheet with another resolution does not change the character's size)
+// so a separate sheet with another resolution does not change the character's size)
 export function spriteFrame(info, animName, tick, sizeOf) {
     const a = info.anims[animName] || info.anims.idle;
     const frames = Math.max(1, Math.floor(a.frames) || 1);
     const i = frames > 1 ? Math.floor(tick / Math.max(1, a.speed || 10)) % frames : 0;
-    if (a.image) {
-        const s = sizeOf(a.image);
-        if (s) {
-            const w = s.w / frames;
-            return { path: a.image, sx: Math.round(i * w), sy: 0, sw: Math.round(w), sh: s.h, k: info.fh / s.h };
-        }
-    }
+    const g = animGrid(info, a, sizeOf);
+    const idx = (a.row || 0) * g.cols + (a.col || 0) + i;
+    const c = idx % g.cols, r = Math.floor(idx / g.cols);
     return {
-        path: info.image,
-        sx: Math.round(info.sheetX + i * info.fw), sy: Math.round(info.sheetY + (a.row || 0) * info.fh),
-        sw: Math.round(info.fw), sh: Math.round(info.fh), k: 1
+        path: g.path,
+        sx: Math.round(g.ox + c * g.fw), sy: Math.round(g.oy + r * g.fh),
+        sw: Math.round(g.fw), sh: Math.round(g.fh), k: info.fh / g.fh
     };
+}
+
+// movement direction from a movement vector (top-down games)
+export function moveDir(dx, dy, prev = 'side') {
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return prev;
+    if (Math.abs(dy) > Math.abs(dx) * 1.3) return dy < 0 ? 'up' : 'down';
+    return 'side';
 }

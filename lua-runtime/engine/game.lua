@@ -5,6 +5,13 @@ local U = require("engine.util")
 local N = require("engine.nav")
 
 local G = {}
+
+-- movement direction from a movement vector (top-down games)
+local function moveDir(dx, dy, prev)
+  if math.abs(dx) < 0.01 and math.abs(dy) < 0.01 then return prev or "side" end
+  if math.abs(dy) > math.abs(dx) * 1.3 then return dy < 0 and "up" or "down" end
+  return "side"
+end
 local B            -- backend
 local cfg          -- game config (game/config.lua, or the debug-edited copy from the save folder)
 local S            -- runtime state of the current play-through
@@ -775,13 +782,15 @@ local function updateKnight(dt)
     k.scale = depth(S.scene, k.x, k.y) * (cfg.knight.baseScale or 0.55)
   end
   if k.state == "WALKING" and #k.path > 0 then
-    local speed = (cfg.knight.speed or 6) * 60 * dt
+    local walk = cfg.knight.speed or 6
+    local speed = (k.running and (cfg.knight.runSpeed or walk * 1.8) or walk) * 60 * dt
     local remaining = speed
     while remaining > 0 and #k.path > 0 do
       local t = k.path[1]
       local dx, dy = t.x - k.x, t.y - k.y
       local d = math.sqrt(dx * dx + dy * dy)
       if math.abs(dx) > 1 then k.facingRight = dx > 0 end
+      if d > 0.5 then k.dir = moveDir(dx, dy, k.dir) end
       if d <= remaining then
         k.x, k.y = t.x, t.y
         remaining = remaining - d
@@ -793,6 +802,7 @@ local function updateKnight(dt)
     end
     if #k.path == 0 then
       k.state = "IDLE"
+      k.running = false
       if S.pendingAct then local p = S.pendingAct S.pendingAct = nil doAct(p.h, p.verb, p.item) end
       if S.pendingTravel then local t = S.pendingTravel S.pendingTravel = nil setScene(t) end
     end
@@ -830,8 +840,10 @@ function G.update(dt)
         local dx, dy = S.knight.x - h.x, S.knight.y - h.y
         h._moving = math.sqrt(dx * dx + dy * dy) > 80
         if h._moving then
-          h.x, h.y = h.x + dx * f, h.y + dy * f
+          local ff = S.knight.running and math.min(1, f * 1.6) or f
+          h.x, h.y = h.x + dx * ff, h.y + dy * ff
           h.mirrored = dx < 0
+          h._dir = moveDir(dx, dy, h._dir)
         end
       end
     end
@@ -1271,6 +1283,8 @@ local function sizeOf(path)
   return nil
 end
 
+local DIR_ANIMS = { "idle_up", "walk_up", "run_up", "idle_down", "walk_down", "run_down" }
+
 local function spriteInfo(o, kind)
   local image = o.customImage or o.image
   local w, h = sizeOf(image)
@@ -1280,35 +1294,55 @@ local function spriteInfo(o, kind)
   local rows = o.rows or (o.frameHeight and math.max(1, U.round(h / o.frameHeight)) or 1)
   local speed = o.animSpeed or (kind == "player" and 6 or 10)
   local a = o.anims or {}
-  local function anim(name, defFrames)
-    local src = a[name] or {}
-    return { row = src.row or 0, frames = src.frames or defFrames, speed = src.speed or speed, image = src.image }
+  local function norm(src, defFrames, defSpeed)
+    src = src or {}
+    return { row = src.row or 0, col = src.col or 0, frames = src.frames or defFrames, speed = src.speed or defSpeed,
+             image = src.image, cols = src.cols, rows = src.rows }
   end
-  return {
-    image = image, fw = o.frameWidth or w / cols, fh = o.frameHeight or h / rows,
-    sheetX = o.sheetX or 0, sheetY = o.sheetY or 0,
-    idle = anim("idle", kind == "player" and 1 or total), walk = anim("walk", total),
-  }
+  local anims = { idle = norm(a.idle, kind == "player" and 1 or total, speed), walk = norm(a.walk, total, speed) }
+  if a.run then anims.run = norm(a.run, total, speed)
+  else
+    anims.run = {}
+    for k2, v in pairs(anims.walk) do anims.run[k2] = v end
+    anims.run.speed = math.max(1, U.round((anims.walk.speed or speed) * 0.6))
+  end
+  if o.dirs then for _, n in ipairs(DIR_ANIMS) do if a[n] then anims[n] = norm(a[n], 1, speed) end end end
+  return { image = image, cols = cols, rows = rows, fw = o.frameWidth or w / cols, fh = o.frameHeight or h / rows,
+           sheetX = o.sheetX or 0, sheetY = o.sheetY or 0, anims = anims, dirs = o.dirs }
+end
+
+-- base = idle | walk | run, dir = side | up | down; returns the animation name and if mirroring is allowed
+local function pickAnim(info, base, dir)
+  if info.dirs and (dir == "up" or dir == "down") then
+    local n = base .. "_" .. dir
+    if info.anims[n] then return n, false end
+  end
+  return info.anims[base] and base or "idle", true
 end
 
 local function spriteFrame(info, name, tick)
-  local a = info[name] or info.idle
+  local a = info.anims[name] or info.anims.idle
   local frames = math.max(1, math.floor(a.frames or 1))
   local i = 0
   if frames > 1 then i = math.floor(tick / math.max(1, a.speed or 10)) % frames end
+  local path, cols, fw, fh, ox, oy = info.image, info.cols, info.fw, info.fh, info.sheetX, info.sheetY
   if a.image then
     local w, h = sizeOf(a.image)
     if w then
-      local fw = w / frames
-      return a.image, U.round(i * fw), 0, U.round(fw), h, info.fh / h
+      cols = a.cols or frames
+      path, fw, fh, ox, oy = a.image, w / cols, h / (a.rows or 1), 0, 0
     end
   end
-  return info.image, U.round(info.sheetX + i * info.fw), U.round(info.sheetY + (a.row or 0) * info.fh), U.round(info.fw), U.round(info.fh), 1
+  local idx = (a.row or 0) * cols + (a.col or 0) + i
+  local c, r = idx % cols, math.floor(idx / cols)
+  return path, U.round(ox + c * fw), U.round(oy + r * fh), U.round(fw), U.round(fh), info.fh / fh
 end
 
-local function drawSprite(o, kind, anim, x, y, scale, mirror, alpha)
+local function drawSprite(o, kind, base, x, y, scale, mirror, alpha, dir)
   local info = spriteInfo(o, kind)
-  local path, sx, sy, sw, sh, k = spriteFrame(info, anim, S.frame)
+  local name, mirrorOk = pickAnim(info, base, dir or "side")
+  if not mirrorOk then mirror = false end
+  local path, sx, sy, sw, sh, k = spriteFrame(info, name, S.frame)
   if not getImage(path) then path, sx, sy, sw, sh, k = spriteFrame(info, "none", S.frame) end
   local w, h = sw * k * scale, sh * k * scale
   drawAnchored(path, sx, sy, sw, sh, x, y, -w / 2 + (o.offX or 0), -h + (o.offY or 0), w, h, mirror, alpha)
@@ -1318,7 +1352,7 @@ local function drawHotspot(h)
   if h.customImage and getImage(h.customImage) then
     local a = 1
     if fadesWhenFar(h) and not h.isFollowing then a = nearAlpha(h, 1) end
-    if a > 0.01 then drawSprite(h, "character", h._moving and "walk" or "idle", h.x, h.y, hotspotScale(h), h.mirrored, a) end
+    if a > 0.01 then drawSprite(h, "character", h._moving and (S.knight.running and "run" or "walk") or "idle", h.x, h.y, hotspotScale(h), h.mirrored, a, h._dir) end
   else
     local a = (h.nearFade == false) and 0.6 or nearAlpha(h, 0.6)
     if ui.debug then a = 1 end
@@ -1335,7 +1369,8 @@ local function drawKnight()
     o = cfg.knight
     if o.offY == nil then o.offY = 35 end
   end
-  drawSprite(o, "player", k.state == "WALKING" and "walk" or "idle", k.x, k.y, k.scale, not k.facingRight)
+  local base = k.state == "WALKING" and (k.running and "run" or "walk") or "idle"
+  drawSprite(o, "player", base, k.x, k.y, k.scale, not k.facingRight, 1, k.dir)
 end
 
 local function drawBubble()
@@ -1480,6 +1515,13 @@ local function worldClick(x, y)
     if isVisible(h) and hotspotHit(h, x, y) then hit = h break end
   end
   S.pendingTravel = nil
+  -- double tap = run
+  local now = B.time()
+  local lt = ui.lastTap
+  local dbl = lt and now - lt.t < 0.38 and U.dist(lt.x, lt.y, x, y) < 50 and cfg.knight.allowRun ~= false
+  ui.lastTap = (not dbl) and { x = x, y = y, t = now } or nil
+  if dbl and S.knight.state == "WALKING" then S.knight.running = true return end
+  S.knight.running = false
   if hit then interact(hit) return end
   S.pendingAct = nil
   if S.held then S.held = nil return end   -- tap on empty ground puts the item back

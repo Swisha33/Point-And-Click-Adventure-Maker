@@ -4,7 +4,7 @@
 import { defaultGameConfig } from './config.js';
 import { debug } from './editor.js';
 import { popup } from './popup.js';
-import { spriteInfo, spriteFrame } from './sprite.js';
+import { spriteInfo, spriteFrame, pickAnim, moveDir } from './sprite.js';
 import { adventure } from './adventure.js';
 
 const VW = 960, VH = 540;
@@ -395,10 +395,12 @@ const engine = {
         const p = this.gameConfig.player;
         this.knight.scale = this.playerScale(this.knight.x, this.knight.y);
         if (this.knight.state === "WALKING" && this.knight.path.length > 0) {
-            const speed = this.gameConfig.knight.speed || 6;
+            const kc = this.gameConfig.knight;
+            const walk = kc.speed || 6, speed = this.knight.running ? (kc.runSpeed || walk * 1.8) : walk;
             const target = this.knight.path[0]; const dx = target.x - this.knight.x, dy = target.y - this.knight.y; const dist = Math.hypot(dx, dy);
             if (Math.abs(dx) > 1) this.knight.facingRight = (dx > 0);
-            if (dist < speed) { this.knight.x = target.x; this.knight.y = target.y; this.knight.path.shift(); if (this.knight.path.length === 0) { this.knight.state = "IDLE"; this.onArrive(); } }
+            if (dist > 0.5) this.knight.dir = moveDir(dx, dy, this.knight.dir);
+            if (dist < speed) { this.knight.x = target.x; this.knight.y = target.y; this.knight.path.shift(); if (this.knight.path.length === 0) { this.knight.state = "IDLE"; this.knight.running = false; this.onArrive(); } }
             else { this.knight.x += (dx / dist) * speed; this.knight.y += (dy / dist) * speed; }
         }
     },
@@ -460,10 +462,13 @@ const engine = {
 
     sizeOf(path) { const im = path ? this.img(path) : null; return this.ready(im) ? { w: im.naturalWidth, h: im.naturalHeight } : null; },
     // draw one animation frame of a sprite object, feet at (x, y)
-    drawSprite(o, kind, anim, x, y, scale, mirror, tick = this.gameFrame) {
+    // base = idle | walk | run, dir = side | up | down (up/down only with "dirs" animations)
+    drawSprite(o, kind, base, x, y, scale, mirror, dir = 'side', tick = this.gameFrame) {
         const sizeOf = (p) => this.sizeOf(p);
         const info = spriteInfo(o, kind, sizeOf);
-        let fr = spriteFrame(info, anim, tick, sizeOf);
+        const pick = pickAnim(info, base, dir);
+        if (!pick.mirrorOk) mirror = false;
+        let fr = spriteFrame(info, pick.name, tick, sizeOf);
         let im = this.img(fr.path);
         if (!this.ready(im)) { fr = spriteFrame(info, 'none', tick, sizeOf); im = this.img(fr.path); }   // separate sheet still loading
         if (!this.ready(im)) return false;
@@ -480,7 +485,7 @@ const engine = {
             ctx.save();
             if (this.fadesWhenFar(h) && !h.isFollowing) ctx.globalAlpha = this.nearAlpha(h);
             if (ctx.globalAlpha <= 0.01) { ctx.restore(); return; }
-            this.drawSprite(h, 'character', h._moving ? 'walk' : 'idle', h.x, h.y, rs, h.mirrored);
+            this.drawSprite(h, 'character', h._moving ? (this.knight.running ? 'run' : 'walk') : 'idle', h.x, h.y, rs, h.mirrored, h._dir || 'side');
             ctx.restore();
         } else {
             const orb = this.img(this.gameConfig.ui.orb);
@@ -493,8 +498,9 @@ const engine = {
         const p = this.gameConfig.player;
         const custom = p && p.customImage && this.ready(this.img(p.customImage));
         const o = custom ? p : this.gameConfig.knight;
-        const anim = this.knight.state === "WALKING" ? 'walk' : 'idle';
-        this.drawSprite(custom ? o : Object.assign({ offY: 35 }, o), 'player', anim, this.knight.x, this.knight.y, this.knight.scale, !this.knight.facingRight);
+        const k = this.knight;
+        const base = k.state === "WALKING" ? (k.running ? 'run' : 'walk') : 'idle';
+        this.drawSprite(custom ? o : Object.assign({ offY: 35 }, o), 'player', base, k.x, k.y, k.scale, !k.facingRight, k.dir || 'side');
     },
 
     drawBubble() {
@@ -573,7 +579,7 @@ const engine = {
                     if (h.isFollowing && this.dialogueTimer <= 0) {
                         const dx = this.knight.x - h.x, dy = this.knight.y - h.y;
                         h._moving = Math.hypot(dx, dy) > 80;
-                        if (h._moving) { h.x += dx * 0.05; h.y += dy * 0.05; h.mirrored = dx < 0; }
+                        if (h._moving) { const f = this.knight.running ? 0.08 : 0.05; h.x += dx * f; h.y += dy * f; h.mirrored = dx < 0; h._dir = moveDir(dx, dy, h._dir); }
                     }
                 });
                 // y-sorted draw of hotspots + knight
@@ -686,6 +692,12 @@ const engine = {
         const a = this.adv;
         const hit = list.slice().reverse().find(h => this.isVisible(h) && this.hotspotHit(h, x, y));
         this.pendingTravel = null;
+        // double tap = run (to the spot or to the hotspot)
+        const now = performance.now(), lt = this._lastTap;
+        const dbl = !!(lt && now - lt.t < 380 && Math.hypot(lt.x - x, lt.y - y) < 50) && this.gameConfig.knight.allowRun !== false;
+        this._lastTap = dbl ? null : { x, y, t: now };
+        if (dbl && this.knight.state === "WALKING") { this.knight.running = true; return; }
+        this.knight.running = false;
         if (hit) { this.interact(hit, x, y); return; }
         a.pendingAct = null;
         if (a.held) { a.held = null; return; }   // tap on empty ground puts the item back

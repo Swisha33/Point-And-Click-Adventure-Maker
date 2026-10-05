@@ -385,7 +385,7 @@ export const defaultGameConfig = {
   "levelLicks": {},
   "levelFollowerAccess": {},
   "player": null,
-  "knight": { "image": "assets/knight.png", "frames": 5, "animSpeed": 6, "offY": 35, "baseScale": 0.55, "speed": 6 },
+  "knight": { "image": "assets/knight.png", "frames": 5, "animSpeed": 6, "offY": 35, "baseScale": 0.55, "speed": 6, "runSpeed": 11, "allowRun": true },
   "ui": { "orb": "assets/hotspot.png", "bubble": "assets/character_talk.png", "panelBox": "assets/uitext.png", "font": "assets/font.ttf" },
   "items": {
     "letter": {

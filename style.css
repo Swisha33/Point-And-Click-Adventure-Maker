@@ -202,3 +202,10 @@ input[type="text"], input[type="file"], input[type="number"], select { width: 10
 .modal-dialog .mini-btn, .modal-dialog .card-tools .mini-btn { background: #2a2a2a; color: #ddd; border: 1px solid #555; padding: 3px 8px; font-size: 12px; border-radius: 3px; width: auto; height: auto; }
 .modal-dialog .mini-btn:hover { background: #3d3d3d; }
 .modal-dialog .rule-block > .mini-btn, .modal-dialog .rule-card .rule-row .mini-btn { margin-top: 2px; }
+
+/* animation table: optional rows, own-image grid */
+.anim-table tr.anim-off td:not(:first-child) { opacity: 0.45; }
+.anim-table tr.dir-row td:nth-child(2) { color: #8cf; }
+.anim-grid input[type=number] { width: 38px !important; }
+.anim-table td input[type=checkbox] { width: auto; margin: 0; }
+.player-only input[type=range] { width: 100%; }
